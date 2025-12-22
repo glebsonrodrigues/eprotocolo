@@ -14,6 +14,13 @@ BASE_DIR = Path(__file__).resolve().parents[2]  # -> .../src
 ENV_PATH = BASE_DIR.parent / ".env"
 load_dotenv(ENV_PATH)
 
+
+# Redirect URLs após login/logout
+LOGIN_URL = "/accounts/login/"
+LOGIN_REDIRECT_URL = "/"
+LOGOUT_REDIRECT_URL = "/accounts/login/"
+
+
 # -----------------------------------------------------------------------------
 # Core settings
 # -----------------------------------------------------------------------------
@@ -38,10 +45,9 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
 
-    # Seus apps (vamos adicionar depois quando estiverem prontos)
-    # "core",
-    # "accounts",
-    # "protocolos",
+    "core",
+    "accounts",
+    "protocolos",
 ]
 
 MIDDLEWARE = [
