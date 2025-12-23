@@ -12,29 +12,28 @@
       <div class="col-12 col-md-5 col-lg-4">
         <div class="card shadow-sm">
           <div class="card-body p-4">
-            <h4 class="mb-3 text-center">Eprotocolo</h4>
+            <h4 class="mb-3">Eprotocolo</h4>
 
-            {% if messages %}
-              {% for message in messages %}
-                <div class="alert alert-danger" role="alert">{{ message }}</div>
-              {% endfor %}
+            {% if error %}
+              <div class="alert alert-danger">{{ error }}</div>
             {% endif %}
 
             <form method="post">
               {% csrf_token %}
               <div class="mb-3">
                 <label class="form-label">Usuário</label>
-                <input type="text" name="username" class="form-control" required>
+                <input name="username" class="form-control" required>
               </div>
               <div class="mb-3">
                 <label class="form-label">Senha</label>
-                <input type="password" name="password" class="form-control" required>
+                <input name="password" type="password" class="form-control" required>
               </div>
               <button class="btn btn-primary w-100" type="submit">Entrar</button>
             </form>
+
           </div>
         </div>
-        <p class="text-center text-muted mt-3 small">Rede interna • Secretaria</p>
+        <p class="text-center text-muted mt-3 mb-0">Secretaria de Administração</p>
       </div>
     </div>
   </div>

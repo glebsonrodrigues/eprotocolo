@@ -14,12 +14,16 @@ BASE_DIR = Path(__file__).resolve().parents[2]  # -> .../src
 ENV_PATH = BASE_DIR.parent / ".env"
 load_dotenv(ENV_PATH)
 
+#Tempo de sessão em segundos
+SESSION_COOKIE_AGE = 600  # 10 minutos (600 segundos)
+SESSION_SAVE_EVERY_REQUEST = False
+SESSION_EXPIRE_AT_BROWSER_CLOSE = True
+
 
 # Redirect URLs após login/logout
-LOGIN_URL = "/accounts/login/"
-LOGIN_REDIRECT_URL = "/"
-LOGOUT_REDIRECT_URL = "/accounts/login/"
-
+LOGIN_URL = "login"
+LOGIN_REDIRECT_URL = "home"
+LOGOUT_REDIRECT_URL = "login"
 
 # -----------------------------------------------------------------------------
 # Core settings
@@ -56,6 +60,8 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    
+    "core.middleware.IdleLogoutMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -73,6 +79,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "core.context_processors.session_time_left",
             ],
         },
     },
