@@ -4,6 +4,14 @@ from django.shortcuts import render, redirect
 from django.urls import reverse
 from django.views.decorators.http import require_http_methods
 
+from accounts.permissions import only_admin
+from django.contrib.auth import get_user_model
+from django.contrib import messages
+
+from .forms import UsuarioCreateForm, UsuarioUpdateForm
+
+User = get_user_model()
+
 
 @require_http_methods(["GET", "POST"])
 def login_view(request):
@@ -33,3 +41,53 @@ def login_view(request):
 def logout_view(request):
     logout(request)
     return redirect("login")
+
+
+@only_admin
+def usuarios_list(request):
+    usuarios = User.objects.select_related("perfil").order_by("username")
+    return render(request, "accounts/usuarios_list.html", {"usuarios": usuarios})
+
+
+@only_admin
+def usuario_create(request):
+    if request.method == "POST":
+        form = UsuarioCreateForm(request.POST)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Usuário criado com sucesso.")
+            return redirect("usuarios_list")
+    else:
+        form = UsuarioCreateForm()
+
+    return render(
+        request,
+        "accounts/usuario_form.html",
+        {
+            "form": form,
+            "titulo": "Novo usuário",
+        },
+    )
+
+
+@only_admin
+def usuario_update(request, pk):
+    user = User.objects.select_related("perfil").get(pk=pk)
+
+    if request.method == "POST":
+        form = UsuarioUpdateForm(request.POST, instance=user)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Usuário atualizado com sucesso.")
+            return redirect("usuarios_list")
+    else:
+        form = UsuarioUpdateForm(instance=user)
+
+    return render(
+        request,
+        "accounts/usuario_form.html",
+        {
+            "form": form,
+            "titulo": f"Editar usuário: {user.username}",
+        },
+    )

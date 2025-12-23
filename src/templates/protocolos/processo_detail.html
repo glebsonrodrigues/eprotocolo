@@ -1,0 +1,102 @@
+{% extends "layout/base.html" %}
+{% block title %}{{ processo.numero_formatado }} - Tramitação{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <div>
+    <h4 class="mb-1">{{ processo.numero_formatado }}</h4>
+    <div class="text-muted small">
+      Tipo: {{ processo.tipo_processo.nome }} • Status: {{ processo.status }}
+    </div>
+  </div>
+  <a class="btn btn-outline-secondary btn-sm" href="{% url 'processos_list' %}">Voltar</a>
+</div>
+
+{% if messages %}
+  {% for m in messages %}
+    <div class="alert alert-{{ m.tags }} py-2">{{ m }}</div>
+  {% endfor %}
+{% endif %}
+
+<div class="row g-3">
+  <div class="col-lg-5">
+    <div class="card">
+      <div class="card-header"><strong>Registrar tramitação</strong></div>
+      <div class="card-body">
+        <form method="post">
+          {% csrf_token %}
+
+          <div class="mb-2">
+            <label class="form-label">Tipo de tramitação</label>
+            {{ form.tipo_tramitacao }}
+          </div>
+
+          <div class="mb-2">
+            <label class="form-label">Ação</label>
+            {{ form.acao }}
+          </div>
+
+          <div class="mb-2">
+            <label class="form-label">Origem (interno)</label>
+            {{ form.departamento_origem }}
+          </div>
+
+          <div class="mb-2">
+            <label class="form-label">Destino</label>
+            {{ form.departamento_destino }}
+            <div class="form-text">Para “Encaminhado”, o destino é obrigatório.</div>
+          </div>
+
+          <div class="mb-2">
+            <label class="form-label">Observação</label>
+            {{ form.observacao }}
+          </div>
+
+          <button class="btn btn-primary w-100" type="submit">Salvar tramitação</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-7">
+    <div class="card">
+      <div class="card-header"><strong>Histórico</strong></div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm mb-0 align-middle">
+            <thead>
+              <tr>
+                <th>Data</th>
+                <th>Ação</th>
+                <th>Tipo</th>
+                <th>Origem</th>
+                <th>Destino</th>
+                <th>Usuário</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for m in movimentacoes %}
+                <tr>
+                  <td>{{ m.registrado_em|date:"d/m/Y H:i" }}</td>
+                  <td><strong>{{ m.acao }}</strong></td>
+                  <td>{{ m.tipo_tramitacao }}</td>
+                  <td>{{ m.departamento_origem.nome }}</td>
+                  <td>{% if m.departamento_destino %}{{ m.departamento_destino.nome }}{% else %}-{% endif %}</td>
+                  <td>{{ m.registrado_por.username }}</td>
+                </tr>
+                {% if m.observacao %}
+                  <tr>
+                    <td colspan="6" class="text-muted small ps-3">Obs.: {{ m.observacao }}</td>
+                  </tr>
+                {% endif %}
+              {% empty %}
+                <tr><td colspan="6" class="text-muted p-3">Sem tramitações registradas.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
