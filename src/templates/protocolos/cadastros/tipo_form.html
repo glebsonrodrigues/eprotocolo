@@ -1,0 +1,31 @@
+{% extends "layout/base.html" %}
+{% block content %}
+<h3 class="mb-3">{% if modo == "create" %}Novo Tipo{% else %}Editar Tipo{% endif %}</h3>
+
+<form method="post" class="card card-body">
+  {% csrf_token %}
+  {{ form.non_field_errors }}
+
+  <div class="mb-3">
+    <label class="form-label">Nome</label>
+    {{ form.nome }}
+    {{ form.nome.errors }}
+  </div>
+
+  <div class="mb-3">
+    <label class="form-label">Descrição</label>
+    {{ form.descricao }}
+    {{ form.descricao.errors }}
+  </div>
+
+  <div class="form-check mb-3">
+    {{ form.ativo }} <label class="form-check-label">Ativo</label>
+    {{ form.ativo.errors }}
+  </div>
+
+  <div class="d-flex gap-2">
+    <button class="btn btn-primary" type="submit">Salvar</button>
+    <a class="btn btn-outline-secondary" href="{% url 'tipos_list' %}">Voltar</a>
+  </div>
+</form>
+{% endblock %}

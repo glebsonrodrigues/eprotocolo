@@ -1,0 +1,435 @@
+{% extends "layout/base.html" %}
+{% block title %}Novo Processo | Eprotocolo{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <div>
+    <h4 class="mb-1">Novo processo</h4>
+    <div class="text-muted small">Criação no <strong>PROTOCOLO GERAL</strong></div>
+  </div>
+  <a class="btn btn-outline-secondary btn-sm" href="{% url 'processos_list' %}">Voltar</a>
+</div>
+
+{% if messages %}
+  {% for m in messages %}
+    <div class="alert alert-{{ m.tags }} py-2">{{ m }}</div>
+  {% endfor %}
+{% endif %}
+
+<div class="card">
+  <div class="card-body">
+    <form method="post" class="row g-3" id="processo-form">
+      {% csrf_token %}
+
+      <!-- ============================== -->
+      <!-- NÚMERO DO PROCESSO (MANUAL)    -->
+      <!-- ============================== -->
+      <div class="col-12 col-lg-4 position-relative">
+        <label class="form-label">
+          Número do processo
+          <i class="bi bi-info-circle ms-1"
+             data-bs-toggle="tooltip"
+             title="Formato obrigatório: 0000/00 (ex.: 0123/26)."></i>
+        </label>
+
+        {{ form.numero_processo }}
+        <div class="form-text">{{ form.numero_processo.help_text }}</div>
+
+        {% if form.numero_processo.errors %}
+          <div class="text-danger small">{{ form.numero_processo.errors }}</div>
+        {% endif %}
+
+        <div class="text-danger small d-none" id="numero-proc-err">
+          Número inválido. Use exatamente o formato 0000/00 (ex.: 0123/26).
+        </div>
+      </div>
+
+      <!-- ============================== -->
+      <!-- REQUERENTE (CPF / NOME)        -->
+      <!-- ============================== -->
+      <div class="col-12">
+        <label class="form-label">Requerente</label>
+
+        <div class="row g-2 align-items-end">
+          <!-- CPF -->
+          <div class="col-12 col-lg-4 position-relative">
+            {{ form.cpf }}
+            <div class="form-text">{{ form.cpf.help_text }}</div>
+            {% if form.cpf.errors %}<div class="text-danger small">{{ form.cpf.errors }}</div>{% endif %}
+
+            <!-- Dropdown de sugestões -->
+            <div class="list-group position-absolute w-100 shadow-sm d-none"
+                 id="cpf-suggestions"
+                 style="z-index: 1000; max-height: 240px; overflow:auto;">
+            </div>
+          </div>
+
+          <!-- Nome/Status -->
+          <div class="col-12 col-lg-5">
+            <div class="border rounded p-2 bg-light">
+              <div class="small text-muted mb-1">Status do requerente</div>
+
+              <!-- encontrado -->
+              <div id="pessoa-ok" class="d-none">
+                <span class="badge bg-success">Cadastrado</span>
+                <span class="ms-2"><strong id="pessoa-nome">---</strong></span>
+              </div>
+
+              <!-- não encontrado -->
+              <div id="pessoa-nao" class="d-none">
+                <span class="badge bg-warning text-dark">Não cadastrado</span>
+                <span class="ms-2 text-muted">Cadastre a pessoa para continuar.</span>
+              </div>
+
+              <!-- neutro -->
+              <div id="pessoa-neutro" class="text-muted small">
+                Digite CPF ou nome. Se existir, o sistema identifica automaticamente.
+              </div>
+            </div>
+          </div>
+
+          <!-- Botão cadastrar pessoa -->
+          <div class="col-12 col-lg-3 d-grid">
+            <a class="btn btn-outline-secondary"
+               id="btn-cadastrar-pessoa"
+               href="{% url 'pessoa_create' %}">
+              Cadastrar pessoa
+            </a>
+            <div class="form-text">
+              Use quando o CPF não estiver cadastrado.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================== -->
+      <!-- CAMPOS DO PROCESSO             -->
+      <!-- ============================== -->
+      <div class="col-12 col-lg-6">
+        {{ form.tipo_processo.label_tag }}
+        {{ form.tipo_processo }}
+        {% if form.tipo_processo.errors %}<div class="text-danger small">{{ form.tipo_processo.errors }}</div>{% endif %}
+      </div>
+
+      <div class="col-12 col-lg-6">
+        {{ form.prioridade.label_tag }}
+        {{ form.prioridade }}
+        {% if form.prioridade.errors %}<div class="text-danger small">{{ form.prioridade.errors }}</div>{% endif %}
+      </div>
+
+      <div class="col-12">
+        {{ form.assunto.label_tag }}
+        {{ form.assunto }}
+        {% if form.assunto.errors %}<div class="text-danger small">{{ form.assunto.errors }}</div>{% endif %}
+      </div>
+
+      <div class="col-12">
+        {{ form.descricao.label_tag }}
+        {{ form.descricao }}
+        {% if form.descricao.errors %}<div class="text-danger small">{{ form.descricao.errors }}</div>{% endif %}
+      </div>
+
+      <!-- ============================== -->
+      <!-- AÇÕES                          -->
+      <!-- ============================== -->
+      <div class="col-12 d-flex gap-2">
+        <button class="btn btn-primary"
+                id="btn-criar-processo"
+                type="submit"
+                name="acao"
+                value="criar"
+                disabled>
+          Criar processo
+        </button>
+
+        <a class="btn btn-outline-secondary" href="{% url 'processos_list' %}">Cancelar</a>
+      </div>
+
+      <!-- Aviso -->
+      <div class="col-12">
+        <div class="alert alert-warning small mb-0 d-none" id="alert-cpf">
+          Para criar o processo, selecione um requerente cadastrado (CPF existente) e informe um número válido (0000/00).
+        </div>
+      </div>
+
+      {% if pessoa %}
+        <script>
+          window.__PESSOA_SERVER__ = {
+            nome: "{{ pessoa.nome|escapejs }}",
+            cpf: "{{ pessoa.cpf|escapejs }}"
+          };
+        </script>
+      {% endif %}
+
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  // ============================
+  // Tooltips
+  // ============================
+  const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+  tooltipTriggerList.map(el => new bootstrap.Tooltip(el));
+
+  // ============================
+  // Helpers
+  // ============================
+  function onlyDigits(s){ return (s || "").replace(/\D+/g, ""); }
+
+  function escapeHtml(str) {
+    return (str || "").replace(/[&<>"']/g, (m) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;"
+    }[m]));
+  }
+
+  function formatCpf(cpf) {
+    const d = onlyDigits(cpf);
+    if (d.length !== 11) return cpf;
+    return d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
+  }
+
+  // ============================
+  // Máscara número do processo 0000/00 (SEM inverter)
+  // Ex: 014525 -> 0145/25 ✅
+  // ============================
+  const inputNum = document.getElementById("id_numero_processo");
+  const numErr = document.getElementById("numero-proc-err");
+
+  function maskNumeroProc(v) {
+    let d = onlyDigits(v).slice(0, 6); // 4+2 = 6
+    if (d.length <= 4) return d;
+    return d.slice(0, 4) + "/" + d.slice(4);
+  }
+
+  function isNumeroProcValid(v){
+    return /^\d{4}\/\d{2}$/.test((v || "").trim());
+  }
+
+  function validateNumeroProcUI(){
+    if (!inputNum) return false;
+    const val = (inputNum.value || "").trim();
+
+    if (!val) {
+      inputNum.classList.remove("is-invalid");
+      numErr.classList.add("d-none");
+      return false;
+    }
+
+    const ok = isNumeroProcValid(val);
+    if (ok) {
+      inputNum.classList.remove("is-invalid");
+      numErr.classList.add("d-none");
+      return true;
+    }
+    inputNum.classList.add("is-invalid");
+    numErr.classList.remove("d-none");
+    return false;
+  }
+
+  if (inputNum) {
+    inputNum.addEventListener("input", () => {
+      inputNum.value = maskNumeroProc(inputNum.value);
+      validateNumeroProcUI();
+      // atualiza botão se pessoa já estiver ok
+      refreshCreateButton();
+    });
+
+    inputNum.addEventListener("blur", () => {
+      inputNum.value = maskNumeroProc(inputNum.value);
+      validateNumeroProcUI();
+      refreshCreateButton();
+    });
+  }
+
+  // ============================
+  // Forçar MAIÚSCULO (assunto/descrição)
+  // ============================
+  const assunto = document.getElementById("id_assunto");
+  const descricao = document.getElementById("id_descricao");
+
+  function forceUpper(el){
+    if (!el) return;
+    el.addEventListener("input", () => {
+      const start = el.selectionStart;
+      const end = el.selectionEnd;
+      el.value = (el.value || "").toUpperCase();
+      try { el.setSelectionRange(start, end); } catch(e){}
+    });
+  }
+  forceUpper(assunto);
+  forceUpper(descricao);
+
+  // ============================
+  // Lookup Pessoa (CPF/Nome)
+  // ============================
+  const inputCpf = document.getElementById("id_cpf");
+  const suggestions = document.getElementById("cpf-suggestions");
+
+  const pessoaOk = document.getElementById("pessoa-ok");
+  const pessoaNao = document.getElementById("pessoa-nao");
+  const pessoaNeutro = document.getElementById("pessoa-neutro");
+
+  const pessoaNome = document.getElementById("pessoa-nome");
+  const btnCriar = document.getElementById("btn-criar-processo");
+  const alertCpf = document.getElementById("alert-cpf");
+  const btnCadastrarPessoa = document.getElementById("btn-cadastrar-pessoa");
+
+  let pessoaSelecionada = null;
+  let debounceTimer = null;
+
+  function setPessoaUI(state) {
+    // state: "neutro" | "ok" | "nao"
+    pessoaOk.classList.toggle("d-none", state !== "ok");
+    pessoaNao.classList.toggle("d-none", state !== "nao");
+    pessoaNeutro.classList.toggle("d-none", state !== "neutro");
+
+    if (state === "nao") {
+      btnCadastrarPessoa.classList.remove("btn-outline-secondary");
+      btnCadastrarPessoa.classList.add("btn-warning");
+    } else {
+      btnCadastrarPessoa.classList.add("btn-outline-secondary");
+      btnCadastrarPessoa.classList.remove("btn-warning");
+    }
+
+    refreshCreateButton();
+  }
+
+  function hideSuggestions() {
+    suggestions.classList.add("d-none");
+    suggestions.innerHTML = "";
+  }
+
+  function showSuggestions(items) {
+    suggestions.innerHTML = "";
+    if (!items || items.length === 0) {
+      hideSuggestions();
+      return;
+    }
+
+    items.forEach(item => {
+      const a = document.createElement("button");
+      a.type = "button";
+      a.className = "list-group-item list-group-item-action";
+      a.innerHTML = `
+        <div class="d-flex justify-content-between">
+          <div><strong>${escapeHtml(item.nome)}</strong></div>
+          <div class="text-muted small">${formatCpf(item.cpf)}</div>
+        </div>
+      `;
+
+      a.addEventListener("click", () => {
+        pessoaSelecionada = item;
+        inputCpf.value = item.cpf; // cpf limpo
+        pessoaNome.textContent = item.nome;
+
+        hideSuggestions();
+        setPessoaUI("ok");
+      });
+
+      suggestions.appendChild(a);
+    });
+
+    suggestions.classList.remove("d-none");
+  }
+
+  async function fetchLookup(q) {
+    const url = "{% url 'pessoa_lookup' %}" + "?q=" + encodeURIComponent(q);
+    const resp = await fetch(url, {
+      method: "GET",
+      headers: { "X-Requested-With": "XMLHttpRequest" },
+      credentials: "same-origin",
+    });
+    if (!resp.ok) return { results: [] };
+    return await resp.json();
+  }
+
+  async function onTypeCpf() {
+    const raw = (inputCpf.value || "").trim();
+    pessoaSelecionada = null;
+
+    if (!raw || raw.length < 2) {
+      hideSuggestions();
+      setPessoaUI("neutro");
+      return;
+    }
+
+    const data = await fetchLookup(raw);
+    const items = (data && data.results) ? data.results : [];
+
+    const digits = onlyDigits(raw);
+    if (digits.length >= 11 && items.length === 0) {
+      hideSuggestions();
+      setPessoaUI("nao");
+      return;
+    }
+
+    showSuggestions(items);
+    setPessoaUI("neutro");
+  }
+
+  if (inputCpf) {
+    inputCpf.addEventListener("input", () => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(onTypeCpf, 250);
+    });
+  }
+
+  document.addEventListener("click", (e) => {
+    if (suggestions && inputCpf && !suggestions.contains(e.target) && e.target !== inputCpf) {
+      hideSuggestions();
+    }
+  });
+
+  // ============================
+  // Habilitar botão Criar processo
+  // Só libera se: pessoa ok + número ok
+  // ============================
+  function isPessoaOk() {
+    const pessoaOkServer = (window.__PESSOA_SERVER__ && window.__PESSOA_SERVER__.cpf);
+    return !!(pessoaSelecionada || pessoaOkServer);
+  }
+
+  function refreshCreateButton() {
+    const numeroOk = validateNumeroProcUI();
+    const pessoaOK = isPessoaOk();
+
+    if (numeroOk && pessoaOK) {
+      btnCriar.disabled = false;
+      alertCpf.classList.add("d-none");
+    } else {
+      btnCriar.disabled = true;
+      alertCpf.classList.remove("d-none");
+    }
+  }
+
+  // Submit: exige pessoa + número válido
+  document.getElementById("processo-form").addEventListener("submit", (e) => {
+    const numeroOk = validateNumeroProcUI();
+    const pessoaOK = isPessoaOk();
+
+    if (!numeroOk || !pessoaOK) {
+      e.preventDefault();
+      if (!pessoaOK) setPessoaUI("nao");
+      refreshCreateButton();
+      return;
+    }
+  });
+
+  // Fallback: pessoa do servidor
+  if (window.__PESSOA_SERVER__ && window.__PESSOA_SERVER__.cpf) {
+    inputCpf.value = window.__PESSOA_SERVER__.cpf;
+    pessoaNome.textContent = window.__PESSOA_SERVER__.nome;
+    setPessoaUI("ok");
+  } else {
+    setPessoaUI("neutro");
+  }
+
+  // inicializa estado do botão
+  refreshCreateButton();
+})();
+</script>
+{% endblock %}

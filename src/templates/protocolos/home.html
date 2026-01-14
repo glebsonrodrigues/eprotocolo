@@ -4,10 +4,94 @@
 
 {% block content %}
   <h4>Bem-vindo ao Eprotocolo</h4>
-  <p class="text-muted mb-0">Sistema de controle de entrada e saída de processos.</p>
-{% endblock %}
+  <p class="text-muted">Sistema de controle de entrada e saída de processos.</p>
 
-{% block scripts %}
-  {% load static %}
-  <script src="{% static 'js/session_timer.js' %}"></script>
+  <div class="row g-3 mt-2">
+
+    <!-- Todos os usuários: Caixa de entrada -->
+    {% if user.is_authenticated %}
+      <div class="col-12 col-md-6 col-lg-4">
+        <div class="card h-100">
+          <div class="card-body">
+            <h6 class="card-title mb-2">
+              Caixa de entrada
+              {% if caixa_entrada_qtd and caixa_entrada_qtd > 0 %}
+                <span class="badge bg-danger ms-1">{{ caixa_entrada_qtd }}</span>
+              {% endif %}
+            </h6>
+            <p class="text-muted small mb-3">
+              Processos pendentes e recebimentos por setor.
+            </p>
+            <a class="btn btn-outline-primary btn-sm" href="{% url 'caixa_entrada' %}">
+              Abrir caixa
+            </a>
+          </div>
+        </div>
+      </div>
+    {% endif %}
+
+    <!-- Todos os usuários: Processos -->
+    <div class="col-12 col-md-6 col-lg-4">
+      <div class="card h-100">
+        <div class="card-body">
+          <h6 class="card-title mb-2">Processos</h6>
+          <p class="text-muted small mb-3">Listar e acompanhar processos.</p>
+          <a class="btn btn-primary btn-sm" href="{% url 'processos_list' %}">
+            Ver processos
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Apenas ADMIN -->
+    {% if user.is_authenticated and user.perfil.papel == "ADMIN" %}
+      <div class="col-12 col-md-6 col-lg-4">
+        <div class="card h-100">
+          <div class="card-body">
+            <h6 class="card-title mb-2">Usuários</h6>
+            <p class="text-muted small mb-3">Cadastrar e gerenciar usuários.</p>
+            <a class="btn btn-outline-dark btn-sm" href="{% url 'usuarios_list' %}">
+              Gerenciar usuários
+            </a>
+          </div>
+        </div>
+      </div>
+    {% endif %}
+
+    <!-- ADMIN ou PROTOCOLISTA -->
+    {% if user.is_authenticated and user.perfil.papel == "ADMIN" or user.perfil.papel == "PROTOCOLISTA" %}
+      <div class="col-12 col-md-6 col-lg-4">
+        <div class="card h-100">
+          <div class="card-body">
+            <h6 class="card-title mb-2">Cadastrar processo</h6>
+            <p class="text-muted small mb-3">Registrar a entrada de um novo processo no PROTOCOLO GERAL.</p>
+            <a class="btn btn-success btn-sm" href="{% url 'processo_create' %}">
+              Novo processo
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12 col-md-6 col-lg-4">
+        <div class="card h-100">
+          <div class="card-body">
+            <h6 class="card-title mb-2">Pessoas (Requerentes)</h6>
+            <p class="text-muted small mb-3">Cadastrar e manter os dados dos requerentes.</p>
+            <a class="btn btn-outline-success btn-sm" href="{% url 'pessoas_list' %}">
+              Gerenciar pessoas
+            </a>
+          </div>
+        </div>
+      </div>
+    {% endif %}
+
+  </div>
+
+  <hr class="my-4">
+
+  {% if user.is_authenticated %}
+    <div class="text-muted small">
+      Perfil atual: <strong>{{ user.perfil.papel }}</strong>
+    </div>
+  {% endif %}
 {% endblock %}

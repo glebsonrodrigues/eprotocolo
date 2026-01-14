@@ -1,0 +1,77 @@
+{% extends "layout/base.html" %}
+{% block title %}{{ processo.numero_formatado }} - Visualizar{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <div>
+    <h4 class="mb-1">{{ processo.numero_formatado }}</h4>
+    <div class="text-muted small">
+      Tipo: {{ processo.tipo_processo.nome }} • Status: {{ processo.get_status_display }} • Prioridade: {{ processo.get_prioridade_display }}
+    </div>
+  </div>
+  <div class="d-flex gap-2">
+    <a class="btn btn-outline-secondary btn-sm" href="{% url 'processos_list' %}">Voltar</a>
+    <a class="btn btn-primary btn-sm" href="{% url 'processo_detail' processo.id %}">Ir para tramitação</a>
+  </div>
+</div>
+
+{% if setor_atual %}
+  <div class="alert alert-light border small">
+    <div><strong>Setor atual:</strong> {{ setor_atual.nome }}</div>
+    {% if pendente_recebimento %}
+      <div class="mt-1">
+        <span class="badge bg-warning text-dark">Pendente de recebimento</span>
+        <span class="text-muted">A tramitação está bloqueada até o recebimento do setor.</span>
+      </div>
+    {% else %}
+      <div class="mt-1">
+        <span class="badge bg-success">Recebido</span>
+        <span class="text-muted">Este setor já registrou recebimento.</span>
+      </div>
+    {% endif %}
+  </div>
+{% else %}
+  <div class="alert alert-info small">
+    Este processo ainda não foi encaminhado para nenhum setor.
+  </div>
+{% endif %}
+
+<div class="card">
+  <div class="card-header"><strong>Histórico de movimentações</strong></div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm mb-0 align-middle">
+        <thead>
+          <tr>
+            <th>Data</th>
+            <th>Ação</th>
+            <th>Tipo</th>
+            <th>Origem</th>
+            <th>Destino</th>
+            <th>Usuário</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for m in movimentacoes %}
+            <tr>
+              <td>{{ m.registrado_em|date:"d/m/Y H:i" }}</td>
+              <td><strong>{{ m.acao }}</strong></td>
+              <td>{{ m.tipo_tramitacao }}</td>
+              <td>{{ m.departamento_origem.nome }}</td>
+              <td>{% if m.departamento_destino %}{{ m.departamento_destino.nome }}{% else %}-{% endif %}</td>
+              <td>{{ m.registrado_por.username }}</td>
+            </tr>
+            {% if m.observacao %}
+              <tr>
+                <td colspan="6" class="text-muted small ps-3">Obs.: {{ m.observacao }}</td>
+              </tr>
+            {% endif %}
+          {% empty %}
+            <tr><td colspan="6" class="text-muted p-3">Sem movimentações registradas.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,75 @@
+{% extends "layout/base.html" %}
+{% block title %}{% if modo == "update" %}Editar{% else %}Nova{% endif %} Pessoa | Eprotocolo{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <div>
+    <h4 class="mb-1">
+      {% if modo == "update" %}Editar pessoa{% else %}Nova pessoa{% endif %}
+    </h4>
+    <div class="text-muted small">Cadastro de requerente</div>
+  </div>
+  <a class="btn btn-outline-secondary btn-sm" href="{% url 'pessoas_list' %}">Voltar</a>
+</div>
+
+{% if messages %}
+  {% for m in messages %}
+    <div class="alert alert-{{ m.tags }} py-2">{{ m }}</div>
+  {% endfor %}
+{% endif %}
+
+<div class="card">
+  <div class="card-body">
+    <form method="post" class="row g-3">
+      {% csrf_token %}
+
+      <div class="col-12 col-lg-8">
+        {{ form.nome.label_tag }}
+        {{ form.nome }}
+        {% if form.nome.errors %}<div class="text-danger small">{{ form.nome.errors }}</div>{% endif %}
+      </div>
+
+      <div class="col-12 col-lg-4">
+        {{ form.cpf.label_tag }}
+        {{ form.cpf }}
+        <div class="form-text">{{ form.cpf.help_text }}</div>
+        {% if form.cpf.errors %}<div class="text-danger small">{{ form.cpf.errors }}</div>{% endif %}
+      </div>
+
+      <div class="col-12 col-lg-6">
+        {{ form.email.label_tag }}
+        {{ form.email }}
+        {% if form.email.errors %}<div class="text-danger small">{{ form.email.errors }}</div>{% endif %}
+      </div>
+
+      <div class="col-12 col-lg-3">
+        {{ form.telefone.label_tag }}
+        {{ form.telefone }}
+        {% if form.telefone.errors %}<div class="text-danger small">{{ form.telefone.errors }}</div>{% endif %}
+      </div>
+
+      <div class="col-12 col-lg-3">
+        {{ form.whatsapp.label_tag }}
+        {{ form.whatsapp }}
+        {% if form.whatsapp.errors %}<div class="text-danger small">{{ form.whatsapp.errors }}</div>{% endif %}
+      </div>
+
+      <div class="col-12">
+        <div class="form-check">
+          {{ form.ativo }}
+          {{ form.ativo.label_tag }}
+        </div>
+        {% if form.ativo.errors %}<div class="text-danger small">{{ form.ativo.errors }}</div>{% endif %}
+      </div>
+
+      <div class="col-12 d-flex gap-2">
+        <button class="btn btn-primary" type="submit">
+          {% if modo == "update" %}Salvar{% else %}Cadastrar{% endif %}
+        </button>
+        <a class="btn btn-outline-secondary" href="{% url 'pessoas_list' %}">Cancelar</a>
+      </div>
+
+    </form>
+  </div>
+</div>
+{% endblock %}

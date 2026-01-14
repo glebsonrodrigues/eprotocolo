@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import EmailValidator
 from django.db import models
@@ -88,6 +89,27 @@ class Departamento(models.Model):
     sigla = models.CharField(max_length=20, blank=True, null=True)
     tipo = models.CharField(max_length=10, choices=Tipo.choices)
     ativo = models.BooleanField(default=True)
+
+    # ✅ flags robustas (não depende de nome)
+    eh_protocolo_geral = models.BooleanField(default=False)
+    eh_arquivo_geral = models.BooleanField(default=False)
+
+    # ✅ seus campos atuais (podem continuar existindo)
+    responsavel = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="departamentos_responsavel",
+        null=True,
+        blank=True,
+    )
+    substituto = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="departamentos_substituto",
+        null=True,
+        blank=True,
+    )
+
     criado_em = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -98,5 +120,79 @@ class Departamento(models.Model):
             models.UniqueConstraint(fields=["nome", "tipo"], name="uniq_departamento_nome_tipo"),
         ]
 
+    def clean(self):
+        # ✅ não pode ser PG e Arquivo Geral ao mesmo tempo
+        if self.eh_protocolo_geral and self.eh_arquivo_geral:
+            raise ValidationError("Um departamento não pode ser PROTOCOLO GERAL e ARQUIVO GERAL ao mesmo tempo.")
+
+        # regra opcional: substituto não pode ser igual ao responsável
+        if self.responsavel and self.substituto and self.responsavel_id == self.substituto_id:
+            raise ValidationError({"substituto": "Substituto não pode ser o mesmo usuário do responsável."})
+
+        # ✅ departamento ATIVO precisa ter alguém “responsável”
+        # (aceita: responsavel OU ao menos 1 membro ativo)
+        if self.ativo:
+            tem_membro_ativo = False
+            if self.pk:
+                tem_membro_ativo = self.membros.filter(ativo=True).exists()
+
+            if not self.responsavel and not tem_membro_ativo:
+                raise ValidationError(
+                    {"responsavel": "Departamento ativo deve ter um responsável OU ao menos 1 membro ativo."}
+                )
+
+        # ✅ PROTOCOLO GERAL deve ser INTERNO e ativo + único
+        if self.eh_protocolo_geral:
+            if self.tipo != self.Tipo.INTERNO:
+                raise ValidationError({"eh_protocolo_geral": "PROTOCOLO GERAL deve ser do tipo INTERNO."})
+            if not self.ativo:
+                raise ValidationError({"eh_protocolo_geral": "PROTOCOLO GERAL deve estar ativo."})
+
+            qs = Departamento.objects.filter(eh_protocolo_geral=True)
+            if self.pk:
+                qs = qs.exclude(pk=self.pk)
+            if qs.exists():
+                raise ValidationError({"eh_protocolo_geral": "Já existe um PROTOCOLO GERAL cadastrado."})
+
+        # ✅ ARQUIVO GERAL recomendado INTERNO + único
+        if self.eh_arquivo_geral:
+            if self.tipo != self.Tipo.INTERNO:
+                raise ValidationError({"eh_arquivo_geral": "ARQUIVO GERAL deve ser do tipo INTERNO."})
+
+            qs = Departamento.objects.filter(eh_arquivo_geral=True)
+            if self.pk:
+                qs = qs.exclude(pk=self.pk)
+            if qs.exists():
+                raise ValidationError({"eh_arquivo_geral": "Já existe um ARQUIVO GERAL cadastrado."})
+
     def __str__(self) -> str:
         return f"{self.nome} ({self.tipo})"
+
+
+class DepartamentoMembro(models.Model):
+    """
+    ✅ Opção B: múltiplos membros por setor.
+    Isso resolve “quem faz parte do setor” (inclusive ARQUIVO GERAL).
+    """
+    departamento = models.ForeignKey(
+        Departamento,
+        on_delete=models.CASCADE,
+        related_name="membros",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="setores",
+    )
+    ativo = models.BooleanField(default=True)
+    criado_em = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Membro do Departamento"
+        verbose_name_plural = "Membros do Departamento"
+        constraints = [
+            models.UniqueConstraint(fields=["departamento", "user"], name="uniq_departamento_membro"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.departamento.nome} <- {self.user.username}"

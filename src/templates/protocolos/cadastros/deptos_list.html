@@ -1,0 +1,70 @@
+{% extends "layout/base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3>Departamentos</h3>
+  <a class="btn btn-primary" href="{% url 'depto_create' %}">Novo</a>
+</div>
+
+<form class="row g-2 mb-3" method="get">
+  <div class="col-md-5">
+    <input class="form-control" name="q" value="{{ f.q }}" placeholder="Buscar por nome/sigla">
+  </div>
+  <div class="col-md-3">
+    <select class="form-select" name="tipo">
+      <option value="" {% if f.tipo == "" %}selected{% endif %}>Todos</option>
+      {% for v, l in tipos %}
+        <option value="{{ v }}" {% if f.tipo == v %}selected{% endif %}>{{ l }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-md-2">
+    <select class="form-select" name="ativo">
+      <option value="" {% if f.ativo == "" %}selected{% endif %}>Todos</option>
+      <option value="1" {% if f.ativo == "1" %}selected{% endif %}>Ativos</option>
+      <option value="0" {% if f.ativo == "0" %}selected{% endif %}>Inativos</option>
+    </select>
+  </div>
+  <div class="col-md-2">
+    <button class="btn btn-outline-secondary w-100">Filtrar</button>
+  </div>
+</form>
+
+<table class="table table-striped">
+  <thead>
+    <tr>
+      <th>Nome</th>
+      <th>Tipo</th>
+      <th>Ativo</th>
+      <th>PG</th>
+      <th>Arquivo</th>
+      <th>Responsável</th>
+      <th class="text-end">Ações</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for d in deptos %}
+      <tr>
+        <td>{{ d.nome }}</td>
+        <td>{{ d.get_tipo_display }}</td>
+        <td>{% if d.ativo %}✅{% else %}❌{% endif %}</td>
+        <td>{% if d.eh_protocolo_geral %}✅{% else %}—{% endif %}</td>
+        <td>{% if d.eh_arquivo_geral %}✅{% else %}—{% endif %}</td>
+        <td>{% if d.responsavel %}{{ d.responsavel.username }}{% else %}—{% endif %}</td>
+        <td class="text-end">
+          <a class="btn btn-sm btn-outline-primary" href="{% url 'depto_update' d.id %}">Editar</a>
+          <a class="btn btn-sm btn-outline-secondary" href="{% url 'depto_membros' d.id %}">Membros</a>
+
+          <form method="post" action="{% url 'depto_toggle_ativo' d.id %}" style="display:inline;">
+            {% csrf_token %}
+            <button class="btn btn-sm btn-outline-warning" type="submit">
+              {% if d.ativo %}Desativar{% else %}Ativar{% endif %}
+            </button>
+          </form>
+        </td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="7">Nenhum departamento encontrado.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

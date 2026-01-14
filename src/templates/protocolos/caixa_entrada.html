@@ -1,0 +1,214 @@
+{% extends "layout/base.html" %}
+{% block title %}Caixa de Entrada - Eprotocolo{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <div>
+    <h4 class="mb-0">Caixa de Entrada</h4>
+    <div class="text-muted small">
+      {% if eh_admin %}
+        Visualização de ADMIN (todos os setores)
+      {% else %}
+        Pendências dos setores onde você é responsável/substituto
+      {% endif %}
+    </div>
+  </div>
+  <a class="btn btn-outline-secondary btn-sm" href="{% url 'processos_list' %}">Ver todos os processos</a>
+</div>
+
+{% if not eh_admin and pendentes_por_setor|length == 0 and no_setor_por_setor|length == 0 %}
+  <div class="alert alert-warning">
+    Você não tem processos nos seus setores, ou não está configurado como responsável/substituto de nenhum setor.
+  </div>
+{% endif %}
+
+<!-- ======================= -->
+<!-- PENDENTES PARA RECEBER   -->
+<!-- ======================= -->
+<div class="card mb-3">
+  <div class="card-header d-flex align-items-center justify-content-between">
+    <strong>Pendentes para receber</strong>
+    <span class="badge bg-warning text-dark">{{ pendentes_por_setor|length }} setor(es)</span>
+  </div>
+
+  <div class="card-body">
+    {% if pendentes_por_setor %}
+      {% for grupo in pendentes_por_setor %}
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <div>
+            <strong>{{ grupo.setor.nome }}</strong>
+            {% if grupo.setor.sigla %}
+              <span class="text-muted small">({{ grupo.setor.sigla }})</span>
+            {% endif %}
+          </div>
+          <span class="badge bg-danger">{{ grupo.qtd }}</span>
+        </div>
+
+        <div class="table-responsive mb-3">
+          <table class="table table-sm table-striped align-middle mb-0">
+            <thead>
+              <tr>
+                <th>Número</th>
+                <th>Tipo</th>
+                <th>Interessado(s)</th>
+                <th>Assunto</th>
+                <th>Última tramitação</th>
+                <th class="text-end">Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for p in grupo.itens %}
+                <tr>
+                  <td><strong>{{ p.numero_formatado }}</strong></td>
+                  <td>{{ p.tipo_processo.nome }}</td>
+
+                  <td style="min-width: 220px;">
+                    {% for i in p.interessados.all %}
+                      <span
+                        class="badge bg-light text-dark border me-1 mb-1"
+                        data-bs-toggle="tooltip"
+                        data-bs-placement="top"
+                        title="CPF: {{ i.cpf }}"
+                      >
+                        {{ i.nome }}
+                      </span>
+                    {% empty %}
+                      <span class="text-muted">-</span>
+                    {% endfor %}
+                  </td>
+
+                  <td>
+                    <div class="fw-semibold">{{ p.assunto }}</div>
+                    <span class="badge bg-warning text-dark">Pendente</span>
+                  </td>
+
+                  <td>
+                    {% if p.ultima_tramitacao %}
+                      {{ p.ultima_tramitacao|date:"d/m/Y H:i" }}
+                    {% else %}
+                      -
+                    {% endif %}
+                  </td>
+
+                  <td class="text-end">
+                    <a class="btn btn-outline-secondary btn-sm" href="{% url 'processo_view' p.id %}">Visualizar</a>
+
+                    <!-- ✅ Receber direto da Caixa -->
+                    <form method="post" action="{% url 'processo_receber' p.id %}" class="d-inline">
+                      {% csrf_token %}
+                      <button class="btn btn-success btn-sm" type="submit">
+                        <i class="bi bi-check2-circle me-1"></i> Receber
+                      </button>
+                    </form>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% endfor %}
+    {% else %}
+      <div class="text-muted">Nenhum pendente para receber.</div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ======================= -->
+<!-- NO(S) MEU(S) SETOR(ES)  -->
+<!-- ======================= -->
+<div class="card">
+  <div class="card-header d-flex align-items-center justify-content-between">
+    <strong>No(s) meu(s) setor(es)</strong>
+    <span class="badge bg-success">{{ no_setor_por_setor|length }} setor(es)</span>
+  </div>
+
+  <div class="card-body">
+    {% if no_setor_por_setor %}
+      {% for grupo in no_setor_por_setor %}
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <div>
+            <strong>{{ grupo.setor.nome }}</strong>
+            {% if grupo.setor.sigla %}
+              <span class="text-muted small">({{ grupo.setor.sigla }})</span>
+            {% endif %}
+          </div>
+          <span class="badge bg-success">{{ grupo.qtd }}</span>
+        </div>
+
+        <div class="table-responsive mb-3">
+          <table class="table table-sm table-striped align-middle mb-0">
+            <thead>
+              <tr>
+                <th>Número</th>
+                <th>Tipo</th>
+                <th>Interessado(s)</th>
+                <th>Assunto</th>
+                <th>Última tramitação</th>
+                <th class="text-end">Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for p in grupo.itens %}
+                <tr>
+                  <td><strong>{{ p.numero_formatado }}</strong></td>
+                  <td>{{ p.tipo_processo.nome }}</td>
+
+                  <td style="min-width: 220px;">
+                    {% for i in p.interessados.all %}
+                      <span
+                        class="badge bg-light text-dark border me-1 mb-1"
+                        data-bs-toggle="tooltip"
+                        data-bs-placement="top"
+                        title="CPF: {{ i.cpf }}"
+                      >
+                        {{ i.nome }}
+                      </span>
+                    {% empty %}
+                      <span class="text-muted">-</span>
+                    {% endfor %}
+                  </td>
+
+                  <td>
+                    <div class="fw-semibold">{{ p.assunto }}</div>
+                  </td>
+
+                  <td>
+                    {% if p.ultima_tramitacao %}
+                      {{ p.ultima_tramitacao|date:"d/m/Y H:i" }}
+                    {% else %}
+                      -
+                    {% endif %}
+                  </td>
+
+                  <td class="text-end">
+                    <a class="btn btn-outline-secondary btn-sm" href="{% url 'processo_view' p.id %}">Visualizar</a>
+                    <a class="btn btn-primary btn-sm" href="{% url 'processo_detail' p.id %}">
+                      <i class="bi bi-arrow-left-right me-1"></i> Tramitar
+                    </a>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% endfor %}
+    {% else %}
+      <div class="text-muted">Nenhum processo no(s) seu(s) setor(es).</div>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    const tooltipTriggerList = [].slice.call(
+      document.querySelectorAll('[data-bs-toggle="tooltip"]')
+    );
+    tooltipTriggerList.map(function (el) {
+      return new bootstrap.Tooltip(el);
+    });
+  });
+</script>
+{% endblock %}

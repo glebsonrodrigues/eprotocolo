@@ -1,0 +1,52 @@
+{% extends "layout/base.html" %}
+{% block content %}
+<h3 class="mb-3">{% if modo == "create" %}Novo Departamento{% else %}Editar Departamento{% endif %}</h3>
+
+<form method="post" class="card card-body">
+  {% csrf_token %}
+  {{ form.non_field_errors }}
+
+  <div class="row g-3">
+    <div class="col-md-6">
+      <label class="form-label">Nome</label>
+      {{ form.nome }} {{ form.nome.errors }}
+    </div>
+    <div class="col-md-2">
+      <label class="form-label">Sigla</label>
+      {{ form.sigla }} {{ form.sigla.errors }}
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">Tipo</label>
+      {{ form.tipo }} {{ form.tipo.errors }}
+    </div>
+
+    <div class="col-md-6">
+      <label class="form-label">Responsável</label>
+      {{ form.responsavel }} {{ form.responsavel.errors }}
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Substituto</label>
+      {{ form.substituto }} {{ form.substituto.errors }}
+    </div>
+  </div>
+
+  <hr class="my-3">
+
+  <div class="row g-3">
+    <div class="col-md-3 form-check">
+      {{ form.ativo }} <label class="form-check-label">Ativo</label>
+    </div>
+    <div class="col-md-3 form-check">
+      {{ form.eh_protocolo_geral }} <label class="form-check-label">Protocolo Geral</label>
+    </div>
+    <div class="col-md-3 form-check">
+      {{ form.eh_arquivo_geral }} <label class="form-check-label">Arquivo Geral</label>
+    </div>
+  </div>
+
+  <div class="d-flex gap-2 mt-4">
+    <button class="btn btn-primary" type="submit">Salvar</button>
+    <a class="btn btn-outline-secondary" href="{% url 'deptos_list' %}">Voltar</a>
+  </div>
+</form>
+{% endblock %}

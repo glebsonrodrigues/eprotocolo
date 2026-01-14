@@ -1,0 +1,175 @@
+{% extends "layout/base.html" %}
+{% block title %}Dashboard - Eprotocolo{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <div>
+    <h4 class="mb-0">Dashboard</h4>
+    <div class="text-muted small">
+      {% if eh_admin %}
+        Visão de ADMIN (você também pode abrir o painel geral)
+      {% else %}
+        Visão dos seus setores (responsável/substituto)
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="d-flex gap-2">
+    {% if eh_admin %}
+      <a class="btn btn-outline-secondary btn-sm" href="{% url 'dashboard_admin' %}">
+        Painel geral
+      </a>
+    {% endif %}
+    <a class="btn btn-outline-secondary btn-sm" href="{% url 'caixa_entrada' %}">
+      Caixa de entrada
+    </a>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-6 col-lg-4">
+    <div class="card">
+      <div class="card-body">
+        <div class="text-muted small">
+          Pendentes p/ receber
+          <i class="bi bi-info-circle ms-1"
+             data-bs-toggle="tooltip"
+             title="Processos que chegaram ao seu(s) setor(es) e ainda precisam do recebimento do responsável/substituto."></i>
+        </div>
+        <div class="fs-4 fw-bold">{{ cards.pendentes }}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-6 col-lg-4">
+    <div class="card">
+      <div class="card-body">
+        <div class="text-muted small">No(s) meu(s) setor(es)</div>
+        <div class="fs-4 fw-bold">{{ cards.no_setor }}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-4">
+    <div class="card">
+      <div class="card-body">
+        <div class="text-muted small">Total no meu recorte</div>
+        <div class="fs-4 fw-bold">{{ cards.total_no_meu_recorte }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if setores_usuario %}
+  <div class="alert alert-light border small">
+    <strong>Meus setores:</strong>
+    {% for s in setores_usuario %}
+      <span class="badge bg-light text-dark border">{{ s.nome }}</span>
+    {% endfor %}
+  </div>
+{% else %}
+  {% if not eh_admin %}
+    <div class="alert alert-warning">
+      Você não está configurado como responsável/substituto de nenhum setor.
+    </div>
+  {% endif %}
+{% endif %}
+
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header"><strong>Pendentes para receber (até 10)</strong></div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm table-striped mb-0 align-middle">
+            <thead>
+              <tr>
+                <th>Número</th>
+                <th>Assunto</th>
+                <th class="text-end">Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for p in pendentes %}
+                <tr>
+                  <td><strong>{{ p.numero_formatado }}</strong></td>
+                  <td>{{ p.assunto }}</td>
+                  <td class="text-end">
+                    <a class="btn btn-outline-secondary btn-sm" href="{% url 'processo_view' p.id %}">Ver</a>
+                    <a class="btn btn-primary btn-sm" href="{% url 'processo_detail' p.id %}">Abrir</a>
+                  </td>
+                </tr>
+              {% empty %}
+                <tr><td colspan="3" class="text-muted p-3">Nenhum pendente.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header"><strong>No(s) meu(s) setor(es) (até 10)</strong></div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm table-striped mb-0 align-middle">
+            <thead>
+              <tr>
+                <th>Número</th>
+                <th>Assunto</th>
+                <th class="text-end">Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for p in no_setor %}
+                <tr>
+                  <td><strong>{{ p.numero_formatado }}</strong></td>
+                  <td>{{ p.assunto }}</td>
+                  <td class="text-end">
+                    <a class="btn btn-outline-secondary btn-sm" href="{% url 'processo_view' p.id %}">Ver</a>
+                    <a class="btn btn-primary btn-sm" href="{% url 'processo_detail' p.id %}">Tramitar</a>
+                  </td>
+                </tr>
+              {% empty %}
+                <tr><td colspan="3" class="text-muted p-3">Nenhum processo no seu setor.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card mt-3">
+  <div class="card-header"><strong>Últimos processos (até 8)</strong></div>
+  <div class="card-body p-0">
+    <div class="list-group list-group-flush">
+      {% for p in ultimos %}
+        <a class="list-group-item list-group-item-action" href="{% url 'processo_view' p.id %}">
+          <div class="d-flex justify-content-between">
+            <strong>{{ p.numero_formatado }}</strong>
+            <small class="text-muted">{{ p.criado_em|date:"d/m/Y" }}</small>
+          </div>
+          <div class="small text-muted">{{ p.assunto }}</div>
+        </a>
+      {% empty %}
+        <div class="p-3 text-muted">Nenhum processo.</div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+    tooltipTriggerList.map(function (tooltipTriggerEl) {
+      return new bootstrap.Tooltip(tooltipTriggerEl);
+    });
+  });
+</script>
+{% endblock %}

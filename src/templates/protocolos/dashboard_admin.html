@@ -1,0 +1,169 @@
+{% extends "layout/base.html" %}
+{% block title %}Dashboard (ADMIN) - Eprotocolo{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <div>
+    <h4 class="mb-0">Dashboard</h4>
+    <div class="text-muted small">Visão geral do sistema (ADMIN)</div>
+  </div>
+  <a class="btn btn-outline-secondary btn-sm" href="{% url 'processos_list' %}">Ver processos</a>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-6 col-lg-3">
+    <div class="card">
+      <div class="card-body">
+        <div class="text-muted small">Total de processos</div>
+        <div class="fs-4 fw-bold">{{ cards.total }}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-6 col-lg-3">
+    <div class="card">
+      <div class="card-body">
+        <div class="text-muted small">Ativos</div>
+        <div class="fs-4 fw-bold">{{ cards.ativos }}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-6 col-lg-3">
+    <div class="card">
+      <div class="card-body">
+        <div class="text-muted small">Arquivados</div>
+        <div class="fs-4 fw-bold">{{ cards.arquivados }}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-6 col-lg-3">
+    <div class="card">
+      <div class="card-body">
+        <div class="d-flex align-items-center justify-content-between">
+          <div class="text-muted small">
+            Pendentes p/ receber
+            <i class="bi bi-info-circle ms-1"
+               data-bs-toggle="tooltip"
+               data-bs-placement="top"
+               title="Processos encaminhados para um setor, mas ainda não recebidos pelo responsável/substituto."></i>
+          </div>
+        </div>
+        <div class="fs-4 fw-bold">{{ cards.pendentes }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header"><strong>Por status</strong></div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm mb-0">
+            <thead><tr><th>Status</th><th class="text-end">Qtd</th></tr></thead>
+            <tbody>
+              {% for row in por_status %}
+                <tr>
+                  <td>{{ row.status }}</td>
+                  <td class="text-end">{{ row.qtd }}</td>
+                </tr>
+              {% empty %}
+                <tr><td colspan="2" class="text-muted p-3">Sem dados.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header"><strong>Por prioridade</strong></div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm mb-0">
+            <thead><tr><th>Prioridade</th><th class="text-end">Qtd</th></tr></thead>
+            <tbody>
+              {% for row in por_prioridade %}
+                <tr>
+                  <td>{{ row.prioridade }}</td>
+                  <td class="text-end">{{ row.qtd }}</td>
+                </tr>
+              {% empty %}
+                <tr><td colspan="2" class="text-muted p-3">Sem dados.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-7">
+    <div class="card">
+      <div class="card-header"><strong>Top 10 setores (setor atual)</strong></div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm mb-0">
+            <thead><tr><th>Setor</th><th class="text-end">Qtd</th></tr></thead>
+            <tbody>
+              {% for row in por_setor %}
+                <tr>
+                  <td>{{ row.setor_atual }}</td>
+                  <td class="text-end">{{ row.qtd }}</td>
+                </tr>
+              {% empty %}
+                <tr><td colspan="2" class="text-muted p-3">Sem dados.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-5">
+    <div class="card">
+      <div class="card-header"><strong>Últimos processos</strong></div>
+      <div class="card-body p-0">
+        <div class="list-group list-group-flush">
+          {% for p in ultimos %}
+            <a class="list-group-item list-group-item-action"
+               href="{% url 'processo_view' p.id %}">
+              <div class="d-flex justify-content-between">
+                <strong>{{ p.numero_formatado }}</strong>
+                <small class="text-muted">{{ p.criado_em|date:"d/m/Y" }}</small>
+              </div>
+              <div class="small text-muted">{{ p.assunto }}</div>
+              <div class="mt-1">
+                {% for it in p.interessados.all %}
+                  <span class="badge bg-light text-dark border">{{ it.nome }}</span>
+                {% empty %}
+                  <span class="text-muted small">Sem requerente</span>
+                {% endfor %}
+              </div>
+            </a>
+          {% empty %}
+            <div class="p-3 text-muted">Nenhum processo.</div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+    tooltipTriggerList.map(function (tooltipTriggerEl) {
+      return new bootstrap.Tooltip(tooltipTriggerEl);
+    });
+  });
+</script>
+{% endblock %}

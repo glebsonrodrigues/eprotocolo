@@ -1,0 +1,52 @@
+{% extends "layout/base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3>Tipos de Processo</h3>
+  <a class="btn btn-primary" href="{% url 'tipo_create' %}">Novo</a>
+</div>
+
+<form class="row g-2 mb-3" method="get">
+  <div class="col-md-6">
+    <input class="form-control" name="q" value="{{ f.q }}" placeholder="Buscar por nome/descrição">
+  </div>
+  <div class="col-md-3">
+    <select class="form-select" name="ativo">
+      <option value="" {% if f.ativo == "" %}selected{% endif %}>Todos</option>
+      <option value="1" {% if f.ativo == "1" %}selected{% endif %}>Ativos</option>
+      <option value="0" {% if f.ativo == "0" %}selected{% endif %}>Inativos</option>
+    </select>
+  </div>
+  <div class="col-md-3">
+    <button class="btn btn-outline-secondary w-100">Filtrar</button>
+  </div>
+</form>
+
+<table class="table table-striped">
+  <thead>
+    <tr>
+      <th>Nome</th>
+      <th>Ativo</th>
+      <th class="text-end">Ações</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for t in tipos %}
+      <tr>
+        <td>{{ t.nome }}</td>
+        <td>{% if t.ativo %}✅{% else %}❌{% endif %}</td>
+        <td class="text-end">
+          <a class="btn btn-sm btn-outline-primary" href="{% url 'tipo_update' t.id %}">Editar</a>
+          <form method="post" action="{% url 'tipo_toggle_ativo' t.id %}" style="display:inline;">
+            {% csrf_token %}
+            <button class="btn btn-sm btn-outline-warning" type="submit">
+              {% if t.ativo %}Desativar{% else %}Ativar{% endif %}
+            </button>
+          </form>
+        </td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="3">Nenhum tipo encontrado.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

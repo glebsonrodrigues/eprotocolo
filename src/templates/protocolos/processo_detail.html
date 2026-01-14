@@ -5,10 +5,27 @@
 <div class="d-flex align-items-center justify-content-between mb-3">
   <div>
     <h4 class="mb-1">{{ processo.numero_formatado }}</h4>
+
     <div class="text-muted small">
-      Tipo: {{ processo.tipo_processo.nome }} • Status: {{ processo.status }}
+      <div>
+        <strong>Tipo:</strong> {{ processo.tipo_processo.nome }}
+        • <strong>Status:</strong> {{ processo.status }}
+        {% if processo.prioridade %}
+          • <strong>Prioridade:</strong> {{ processo.prioridade }}
+        {% endif %}
+      </div>
+
+      <div class="mt-1">
+        <strong>Requerente(s):</strong>
+        {% for p in processo.interessados.all %}
+          <span class="badge bg-light text-dark border">{{ p.nome }}</span>
+        {% empty %}
+          <span class="text-muted">Não informado</span>
+        {% endfor %}
+      </div>
     </div>
   </div>
+
   <a class="btn btn-outline-secondary btn-sm" href="{% url 'processos_list' %}">Voltar</a>
 </div>
 
@@ -18,49 +35,152 @@
   {% endfor %}
 {% endif %}
 
+{% if processo.status == "ARQUIVADO" %}
+  <div class="alert alert-secondary small">
+    <strong>Processo arquivado.</strong> Não é possível registrar novas tramitações.
+  </div>
+{% endif %}
+
+{% if user.is_authenticated and user.perfil.papel == "PROTOCOLISTA" and setor_atual and not setor_atual.eh_protocolo_geral %}
+  <div class="alert alert-warning small">
+    <strong>Permissão:</strong> protocolista só pode tramitar enquanto o processo estiver no <strong>PROTOCOLO GERAL</strong>.
+  </div>
+{% endif %}
+
 <div class="row g-3">
   <div class="col-lg-5">
     <div class="card">
       <div class="card-header"><strong>Registrar tramitação</strong></div>
+
       <div class="card-body">
-        <form method="post">
-          {% csrf_token %}
 
-          <div class="mb-2">
-            <label class="form-label">Tipo de tramitação</label>
-            {{ form.tipo_tramitacao }}
+        {% if setor_atual %}
+          <div class="alert alert-light border small">
+            <div><strong>Setor atual:</strong> {{ setor_atual.nome }}</div>
+
+            {% if pendente_recebimento %}
+              <div class="mt-1">
+                <span class="badge bg-warning text-dark">Pendente de recebimento</span>
+                <div class="text-muted">
+                  A tramitação só será liberada após o recebimento pelo responsável do setor.
+                </div>
+              </div>
+
+              {% if pode_receber %}
+                <form method="post" action="{% url 'processo_receber' processo.id %}" class="mt-2">
+                  {% csrf_token %}
+                  <button class="btn btn-success btn-sm" type="submit">
+                    Receber processo
+                  </button>
+                </form>
+              {% endif %}
+
+            {% else %}
+              <div class="mt-1">
+                <span class="badge bg-success">Recebido</span>
+                <span class="text-muted">Este setor já registrou recebimento.</span>
+              </div>
+            {% endif %}
           </div>
 
-          <div class="mb-2">
-            <label class="form-label">Ação</label>
-            {{ form.acao }}
+        {% else %}
+          <div class="alert alert-info small mb-3">
+            Este processo ainda não foi encaminhado para nenhum setor.
           </div>
+        {% endif %}
 
-          <div class="mb-2">
-            <label class="form-label">Origem (interno)</label>
+        {# ✅ Se ARQUIVADO: NÃO mostra o formulário de tramitação (somente histórico) #}
+        {% if processo.status == "ARQUIVADO" %}
+
+          {% if pendente_recebimento and pode_receber %}
+            <div class="alert alert-warning small mb-0">
+              Este processo está arquivado, porém aparece como pendente de recebimento. Ao clicar em
+              <strong>Receber processo</strong>, o sistema registra o recebimento e atualiza a caixa de entrada.
+            </div>
+          {% else %}
+            <div class="text-muted small mb-0">
+              Tramitação bloqueada: processo arquivado.
+            </div>
+          {% endif %}
+
+        {% else %}
+
+          <form method="post">
+            {% csrf_token %}
+
+            {% if form.non_field_errors %}
+              <div class="alert alert-danger small">
+                {{ form.non_field_errors }}
+              </div>
+            {% endif %}
+
+            <div class="mb-2">
+              <label class="form-label">Tipo de tramitação</label>
+              {{ form.tipo_tramitacao }}
+              {% if form.tipo_tramitacao.errors %}
+                <div class="text-danger small">{{ form.tipo_tramitacao.errors }}</div>
+              {% endif %}
+            </div>
+
+            <div class="mb-2">
+              <label class="form-label">Ação</label>
+              {{ form.acao }}
+              {% if form.acao.errors %}
+                <div class="text-danger small">{{ form.acao.errors }}</div>
+              {% endif %}
+            </div>
+
             {{ form.departamento_origem }}
-          </div>
 
-          <div class="mb-2">
-            <label class="form-label">Destino</label>
-            {{ form.departamento_destino }}
-            <div class="form-text">Para “Encaminhado”, o destino é obrigatório.</div>
-          </div>
+            <div class="mb-2">
+              <label class="form-label">Destino</label>
+              {{ form.departamento_destino }}
+              <div class="form-text">Para “Encaminhado”, o destino é obrigatório.</div>
+              {% if form.departamento_destino.errors %}
+                <div class="text-danger small">{{ form.departamento_destino.errors }}</div>
+              {% endif %}
+            </div>
 
-          <div class="mb-2">
-            <label class="form-label">Observação</label>
-            {{ form.observacao }}
-          </div>
+            <div class="mb-2">
+              <label class="form-label">Observação</label>
+              {{ form.observacao }}
+              {% if form.observacao.errors %}
+                <div class="text-danger small">{{ form.observacao.errors }}</div>
+              {% endif %}
+            </div>
 
-          <button class="btn btn-primary w-100" type="submit">Salvar tramitação</button>
-        </form>
+            <button
+              class="btn btn-primary w-100"
+              type="submit"
+              {% if pendente_recebimento %}disabled{% endif %}
+              {% if user.is_authenticated and user.perfil.papel == "PROTOCOLISTA" and setor_atual and not setor_atual.eh_protocolo_geral %}disabled{% endif %}
+            >
+              Salvar tramitação
+            </button>
+
+            {% if pendente_recebimento %}
+              <div class="text-muted small mt-2">
+                Tramitação bloqueada: aguardando recebimento pelo responsável do setor.
+              </div>
+            {% endif %}
+
+            {% if user.is_authenticated and user.perfil.papel == "PROTOCOLISTA" and setor_atual and not setor_atual.eh_protocolo_geral %}
+              <div class="text-muted small mt-2">
+                Tramitação bloqueada: protocolista só atua no PROTOCOLO GERAL.
+              </div>
+            {% endif %}
+          </form>
+
+        {% endif %}
+
       </div>
     </div>
   </div>
 
   <div class="col-lg-7">
     <div class="card">
-      <div class="card-header"><strong>Histórico</strong></div>
+      <div class="card-header"><strong>Histórico de movimentações</strong></div>
+
       <div class="card-body p-0">
         <div class="table-responsive">
           <table class="table table-sm mb-0 align-middle">
@@ -74,6 +194,7 @@
                 <th>Usuário</th>
               </tr>
             </thead>
+
             <tbody>
               {% for m in movimentacoes %}
                 <tr>
@@ -81,21 +202,35 @@
                   <td><strong>{{ m.acao }}</strong></td>
                   <td>{{ m.tipo_tramitacao }}</td>
                   <td>{{ m.departamento_origem.nome }}</td>
-                  <td>{% if m.departamento_destino %}{{ m.departamento_destino.nome }}{% else %}-{% endif %}</td>
+                  <td>
+                    {% if m.departamento_destino %}
+                      {{ m.departamento_destino.nome }}
+                    {% else %}
+                      -
+                    {% endif %}
+                  </td>
                   <td>{{ m.registrado_por.username }}</td>
                 </tr>
+
                 {% if m.observacao %}
                   <tr>
-                    <td colspan="6" class="text-muted small ps-3">Obs.: {{ m.observacao }}</td>
+                    <td colspan="6" class="text-muted small ps-3">
+                      <strong>Obs.:</strong> {{ m.observacao }}
+                    </td>
                   </tr>
                 {% endif %}
+
               {% empty %}
-                <tr><td colspan="6" class="text-muted p-3">Sem tramitações registradas.</td></tr>
+                <tr>
+                  <td colspan="6" class="text-muted p-3">Sem tramitações registradas.</td>
+                </tr>
               {% endfor %}
             </tbody>
+
           </table>
         </div>
       </div>
+
     </div>
   </div>
 </div>

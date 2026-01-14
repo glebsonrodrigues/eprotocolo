@@ -6,34 +6,172 @@
   <h4 class="mb-0">Processos</h4>
 </div>
 
+<!-- Filtros -->
+<form method="get" class="row g-2 align-items-end mb-3">
+  <div class="col-12 col-md-4">
+    <label class="form-label">Busca (nº / assunto / descrição / interessado / CPF)</label>
+    <div class="form-text">CPF pode ser digitado com ou sem pontuação.</div>
+    <input type="text" name="q" class="form-control" value="{{ f.q }}">
+  </div>
+
+  <div class="col-12 col-md-2">
+    <label class="form-label">Tipo</label>
+    <select name="tipo" class="form-select">
+      <option value="">Todos</option>
+      {% for t in tipos %}
+        <option value="{{ t.id }}" {% if f.tipo == t.id|stringformat:"s" %}selected{% endif %}>
+          {{ t.nome }}
+        </option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="col-12 col-md-2">
+    <label class="form-label">Setor atual</label>
+    <select name="setor" class="form-select">
+      <option value="">Todos</option>
+      {% for s in setores %}
+        <option value="{{ s.id }}" {% if f.setor == s.id|stringformat:"s" %}selected{% endif %}>
+          {{ s.nome }}
+        </option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="col-6 col-md-2">
+    <label class="form-label">Status</label>
+    <select name="status" class="form-select">
+      <option value="">Todos</option>
+      {% for val, label in status_choices %}
+        <option value="{{ val }}" {% if f.status == val %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="col-6 col-md-2">
+    <label class="form-label">Prioridade</label>
+    <select name="prioridade" class="form-select">
+      <option value="">Todas</option>
+      {% for val, label in prioridade_choices %}
+        <option value="{{ val }}" {% if f.prioridade == val %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="col-12 d-flex gap-2 mt-2">
+    <button class="btn btn-primary btn-sm" type="submit">Filtrar</button>
+    <a class="btn btn-outline-secondary btn-sm" href="{% url 'processos_list' %}">Limpar</a>
+  </div>
+</form>
+
 <div class="table-responsive">
   <table class="table table-sm table-striped align-middle">
     <thead>
       <tr>
         <th>Número</th>
         <th>Tipo</th>
+        <th>Interessado(s)</th>
         <th>Assunto</th>
         <th>Status</th>
+        <th>Prioridade</th>
         <th>Criado em</th>
-        <th></th>
+        <th>Setor atual</th>
+        <th>Última tramitação</th>
+        <th class="text-end">Ações</th>
       </tr>
     </thead>
+
     <tbody>
       {% for p in processos %}
         <tr>
           <td><strong>{{ p.numero_formatado }}</strong></td>
+
           <td>{{ p.tipo_processo.nome }}</td>
-          <td>{{ p.assunto }}</td>
-          <td>{{ p.status }}</td>
+
+          <!-- Interessados com tooltip de CPF -->
+          <td style="min-width: 240px;">
+            {% for i in p.interessados.all %}
+              <span
+                class="badge bg-light text-dark border me-1 mb-1"
+                data-bs-toggle="tooltip"
+                data-bs-placement="top"
+                title="CPF: {{ i.cpf }}"
+              >
+                {{ i.nome }}
+              </span>
+            {% empty %}
+              <span class="text-muted">-</span>
+            {% endfor %}
+          </td>
+
+          <td>
+            <div class="fw-semibold">{{ p.assunto }}</div>
+            {% if p.pendente_recebimento %}
+              <div class="small mt-1">
+                <span class="badge bg-warning text-dark">Pendente de recebimento</span>
+              </div>
+            {% endif %}
+          </td>
+
+          <td>
+            {% if p.status == "ATIVO" %}
+              <span class="badge bg-success">{{ p.get_status_display }}</span>
+            {% else %}
+              <span class="badge bg-secondary">{{ p.get_status_display }}</span>
+            {% endif %}
+          </td>
+
+          <td>
+            {% if p.prioridade == "URGENTE" %}
+              <span class="badge bg-danger">{{ p.get_prioridade_display }}</span>
+            {% else %}
+              <span class="badge bg-info text-dark">{{ p.get_prioridade_display }}</span>
+            {% endif %}
+          </td>
+
           <td>{{ p.criado_em|date:"d/m/Y H:i" }}</td>
+
+          <td>{{ p.setor_atual|default:"-" }}</td>
+
+          <td>
+            {% if p.ultima_tramitacao %}
+              {{ p.ultima_tramitacao|date:"d/m/Y H:i" }}
+            {% else %}
+              -
+            {% endif %}
+          </td>
+
           <td class="text-end">
-            <a class="btn btn-primary btn-sm" href="{% url 'processo_detail' p.id %}">Tramitar</a>
+            <a class="btn btn-outline-secondary btn-sm" href="{% url 'processo_view' p.id %}">
+              Visualizar
+            </a>
+
+            <a class="btn btn-primary btn-sm {% if p.pendente_recebimento %}disabled{% endif %}"
+               href="{% url 'processo_detail' p.id %}"
+               {% if p.pendente_recebimento %}aria-disabled="true" tabindex="-1"{% endif %}>
+              Tramitar
+            </a>
           </td>
         </tr>
       {% empty %}
-        <tr><td colspan="6" class="text-muted">Nenhum processo cadastrado.</td></tr>
+        <tr>
+          <td colspan="10" class="text-muted">Nenhum processo cadastrado.</td>
+        </tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
+
+<!-- Inicialização dos tooltips Bootstrap -->
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    const tooltipTriggerList = [].slice.call(
+      document.querySelectorAll('[data-bs-toggle="tooltip"]')
+    );
+    tooltipTriggerList.map(function (tooltipTriggerEl) {
+      return new bootstrap.Tooltip(tooltipTriggerEl);
+    });
+  });
+</script>
+
 {% endblock %}
