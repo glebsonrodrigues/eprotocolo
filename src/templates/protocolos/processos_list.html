@@ -7,16 +7,23 @@
 </div>
 
 <!-- Filtros -->
-<form method="get" class="row g-2 align-items-end mb-3">
+<form id="filtroForm" method="get" class="row g-2 align-items-end mb-3">
   <div class="col-12 col-md-4">
     <label class="form-label">Busca (nº / assunto / descrição / interessado / CPF)</label>
     <div class="form-text">CPF pode ser digitado com ou sem pontuação.</div>
-    <input type="text" name="q" class="form-control" value="{{ f.q }}">
+    <input
+      id="id_q"
+      type="text"
+      name="q"
+      class="form-control"
+      value="{{ f.q }}"
+      placeholder="Digite e clique em Filtrar"
+    >
   </div>
 
   <div class="col-12 col-md-2">
     <label class="form-label">Tipo</label>
-    <select name="tipo" class="form-select">
+    <select id="id_tipo" name="tipo" class="form-select">
       <option value="">Todos</option>
       {% for t in tipos %}
         <option value="{{ t.id }}" {% if f.tipo == t.id|stringformat:"s" %}selected{% endif %}>
@@ -28,7 +35,7 @@
 
   <div class="col-12 col-md-2">
     <label class="form-label">Setor atual</label>
-    <select name="setor" class="form-select">
+    <select id="id_setor" name="setor" class="form-select">
       <option value="">Todos</option>
       {% for s in setores %}
         <option value="{{ s.id }}" {% if f.setor == s.id|stringformat:"s" %}selected{% endif %}>
@@ -40,7 +47,7 @@
 
   <div class="col-6 col-md-2">
     <label class="form-label">Status</label>
-    <select name="status" class="form-select">
+    <select id="id_status" name="status" class="form-select">
       <option value="">Todos</option>
       {% for val, label in status_choices %}
         <option value="{{ val }}" {% if f.status == val %}selected{% endif %}>{{ label }}</option>
@@ -50,7 +57,7 @@
 
   <div class="col-6 col-md-2">
     <label class="form-label">Prioridade</label>
-    <select name="prioridade" class="form-select">
+    <select id="id_prioridade" name="prioridade" class="form-select">
       <option value="">Todas</option>
       {% for val, label in prioridade_choices %}
         <option value="{{ val }}" {% if f.prioridade == val %}selected{% endif %}>{{ label }}</option>
@@ -59,7 +66,7 @@
   </div>
 
   <div class="col-12 d-flex gap-2 mt-2">
-    <button class="btn btn-primary btn-sm" type="submit">Filtrar</button>
+    <button id="btnFiltrar" class="btn btn-primary btn-sm" type="submit">Filtrar</button>
     <a class="btn btn-outline-secondary btn-sm" href="{% url 'processos_list' %}">Limpar</a>
   </div>
 </form>
@@ -162,15 +169,45 @@
   </table>
 </div>
 
-<!-- Inicialização dos tooltips Bootstrap -->
 <script>
   document.addEventListener("DOMContentLoaded", function () {
+    // ✅ Tooltips Bootstrap
     const tooltipTriggerList = [].slice.call(
       document.querySelectorAll('[data-bs-toggle="tooltip"]')
     );
     tooltipTriggerList.map(function (tooltipTriggerEl) {
       return new bootstrap.Tooltip(tooltipTriggerEl);
     });
+
+    // ✅ Auto-filtrar ao mudar selects (tipo, setor, status, prioridade)
+    const form = document.getElementById("filtroForm");
+    const q = document.getElementById("id_q");
+    const btnFiltrar = document.getElementById("btnFiltrar");
+
+    const autoCampos = [
+      document.getElementById("id_tipo"),
+      document.getElementById("id_setor"),
+      document.getElementById("id_status"),
+      document.getElementById("id_prioridade"),
+    ].filter(Boolean);
+
+    autoCampos.forEach((el) => {
+      el.addEventListener("change", () => {
+        form.submit();
+      });
+    });
+
+    // ✅ Botão Filtrar só quando tiver texto na busca
+    function atualizarBotao() {
+      if (!btnFiltrar || !q) return;
+      const temTexto = (q.value || "").trim().length > 0;
+      btnFiltrar.disabled = !temTexto;
+    }
+
+    if (q) {
+      q.addEventListener("input", atualizarBotao);
+      atualizarBotao();
+    }
   });
 </script>
 

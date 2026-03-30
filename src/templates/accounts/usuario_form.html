@@ -1,25 +1,232 @@
 {% extends "layout/base.html" %}
-{% block title %}{{ titulo }}{% endblock %}
 
 {% block content %}
-<h4 class="mb-3">{{ titulo }}</h4>
+<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+  <div>
+    <h3 class="mb-1">{{ titulo }}</h3>
+    <div class="text-muted small">Cadastre o usuário e defina o papel de acesso.</div>
+  </div>
 
-<form method="post" class="card card-body">
+  <a class="btn btn-outline-secondary" href="{% url 'usuarios_list' %}">
+    <i class="bi bi-arrow-left"></i> Voltar
+  </a>
+</div>
+
+<form method="post" class="card shadow-sm border-0">
   {% csrf_token %}
 
-  {% for field in form %}
-    <div class="mb-2">
-      <label class="form-label">{{ field.label }}</label>
-      {{ field }}
-      {% if field.errors %}
-        <div class="text-danger small">{{ field.errors|striptags }}</div>
-      {% endif %}
-    </div>
-  {% endfor %}
+  <div class="card-body">
+    {% if form.non_field_errors %}
+      <div class="alert alert-danger py-2 mb-3">
+        {{ form.non_field_errors }}
+      </div>
+    {% endif %}
 
-  <div class="mt-3">
-    <button class="btn btn-primary">Salvar</button>
-    <a class="btn btn-secondary" href="{% url 'usuarios_list' %}">Cancelar</a>
+    <div class="row g-4">
+
+      <!-- DADOS BÁSICOS -->
+      <div class="col-12">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <i class="bi bi-person"></i>
+          <h6 class="mb-0">Dados do usuário</h6>
+        </div>
+        <div class="row g-3">
+          {% if form.username %}
+            <div class="col-md-4">
+              <label class="form-label">{{ form.username.label }}</label>
+              {{ form.username }}
+              {% if form.username.errors %}<div class="text-danger small mt-1">{{ form.username.errors|striptags }}</div>{% endif %}
+            </div>
+          {% endif %}
+
+          {% if form.first_name %}
+            <div class="col-md-4">
+              <label class="form-label">{{ form.first_name.label }}</label>
+              {{ form.first_name }}
+              {% if form.first_name.errors %}<div class="text-danger small mt-1">{{ form.first_name.errors|striptags }}</div>{% endif %}
+            </div>
+          {% endif %}
+
+          {% if form.last_name %}
+            <div class="col-md-4">
+              <label class="form-label">{{ form.last_name.label }}</label>
+              {{ form.last_name }}
+              {% if form.last_name.errors %}<div class="text-danger small mt-1">{{ form.last_name.errors|striptags }}</div>{% endif %}
+            </div>
+          {% endif %}
+
+          {% if form.email %}
+            <div class="col-md-6">
+              <label class="form-label">{{ form.email.label }}</label>
+              {{ form.email }}
+              {% if form.email.errors %}<div class="text-danger small mt-1">{{ form.email.errors|striptags }}</div>{% endif %}
+            </div>
+          {% endif %}
+        </div>
+      </div>
+
+      <hr class="my-0">
+
+      <!-- ACESSO / PERFIL -->
+      <div class="col-12">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <i class="bi bi-shield-lock"></i>
+          <h6 class="mb-0">Acesso</h6>
+        </div>
+
+        <div class="row g-3">
+          {% if form.papel %}
+            <div class="col-md-4">
+              <label class="form-label">{{ form.papel.label }}</label>
+              {{ form.papel }}
+              {% if form.papel.errors %}<div class="text-danger small mt-1">{{ form.papel.errors|striptags }}</div>{% endif %}
+            </div>
+          {% endif %}
+
+          {% if form.is_active %}
+            <div class="col-md-4 d-flex align-items-end">
+              <div class="form-check">
+                {{ form.is_active }}
+                <label class="form-check-label">{{ form.is_active.label }}</label>
+              </div>
+              {% if form.is_active.errors %}<div class="text-danger small ms-2">{{ form.is_active.errors|striptags }}</div>{% endif %}
+            </div>
+          {% endif %}
+        </div>
+      </div>
+
+      {% if form.password1 or form.password2 %}
+        <hr class="my-0">
+
+        <!-- SENHA (SÓ NO CREATE) -->
+        <div class="col-12">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <i class="bi bi-key"></i>
+            <h6 class="mb-0">Senha</h6>
+          </div>
+
+          <div class="row g-3">
+            {% if form.password1 %}
+              <div class="col-md-6">
+                <label class="form-label">{{ form.password1.label }}</label>
+
+                <div class="input-group">
+                  {{ form.password1 }}
+                  <button class="btn btn-outline-secondary" type="button" id="toggle-pass1" title="Mostrar/ocultar">
+                    <i class="bi bi-eye"></i>
+                  </button>
+                </div>
+
+                <div class="progress mt-2" style="height: 8px;">
+                  <div class="progress-bar" id="pass-strength-bar" role="progressbar" style="width: 0%"></div>
+                </div>
+                <div class="text-muted small mt-1" id="pass-strength-text">Força da senha: —</div>
+
+                {% if form.password1.errors %}<div class="text-danger small mt-1">{{ form.password1.errors|striptags }}</div>{% endif %}
+              </div>
+            {% endif %}
+
+            {% if form.password2 %}
+              <div class="col-md-6">
+                <label class="form-label">{{ form.password2.label }}</label>
+
+                <div class="input-group">
+                  {{ form.password2 }}
+                  <button class="btn btn-outline-secondary" type="button" id="toggle-pass2" title="Mostrar/ocultar">
+                    <i class="bi bi-eye"></i>
+                  </button>
+                </div>
+
+                <div class="text-muted small mt-1" id="pass-match-text">Confirmação: —</div>
+
+                {% if form.password2.errors %}<div class="text-danger small mt-1">{{ form.password2.errors|striptags }}</div>{% endif %}
+              </div>
+            {% endif %}
+          </div>
+        </div>
+      {% endif %}
+
+    </div>
+  </div>
+
+  <div class="card-footer bg-white d-flex justify-content-end gap-2">
+    <button class="btn btn-primary" type="submit">
+      <i class="bi bi-check2-circle me-1"></i> Salvar
+    </button>
+    <a class="btn btn-outline-secondary" href="{% url 'usuarios_list' %}">
+      Cancelar
+    </a>
   </div>
 </form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function togglePassword(inputId, btnId) {
+    const input = document.getElementById(inputId);
+    const btn = document.getElementById(btnId);
+    if (!input || !btn) return;
+
+    btn.addEventListener("click", () => {
+      input.type = (input.type === "password") ? "text" : "password";
+      const icon = btn.querySelector("i");
+      if (icon) icon.className = (input.type === "password") ? "bi bi-eye" : "bi bi-eye-slash";
+    });
+  }
+
+  function passwordStrength(pw) {
+    // heurística simples (boa e leve)
+    let score = 0;
+    if (!pw) return { score: 0, label: "—" };
+
+    if (pw.length >= 8) score++;
+    if (pw.length >= 12) score++;
+    if (/[A-Z]/.test(pw)) score++;
+    if (/[a-z]/.test(pw)) score++;
+    if (/[0-9]/.test(pw)) score++;
+    if (/[^A-Za-z0-9]/.test(pw)) score++;
+
+    // normaliza para 0..4 (pra UI ficar simples)
+    const lvl = Math.min(4, Math.floor(score / 1.5));
+    const labels = ["Muito fraca", "Fraca", "Média", "Forte", "Muito forte"];
+    return { score: lvl, label: labels[lvl] };
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    // mostrar/ocultar
+    togglePassword("id_password1", "toggle-pass1");
+    togglePassword("id_password2", "toggle-pass2");
+
+    const p1 = document.getElementById("id_password1");
+    const p2 = document.getElementById("id_password2");
+    const bar = document.getElementById("pass-strength-bar");
+    const txt = document.getElementById("pass-strength-text");
+    const matchTxt = document.getElementById("pass-match-text");
+
+    function updateStrength() {
+      if (!p1 || !bar || !txt) return;
+      const { score, label } = passwordStrength(p1.value);
+      const widths = ["0%", "25%", "50%", "75%", "100%"];
+      bar.style.width = widths[score];
+      txt.textContent = "Força da senha: " + label;
+    }
+
+    function updateMatch() {
+      if (!p1 || !p2 || !matchTxt) return;
+      if (!p2.value) {
+        matchTxt.textContent = "Confirmação: —";
+        return;
+      }
+      matchTxt.textContent = (p1.value === p2.value)
+        ? "Confirmação: OK"
+        : "Confirmação: não confere";
+    }
+
+    if (p1) p1.addEventListener("input", () => { updateStrength(); updateMatch(); });
+    if (p2) p2.addEventListener("input", updateMatch);
+
+    updateStrength();
+    updateMatch();
+  });
+</script>
 {% endblock %}

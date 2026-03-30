@@ -1,3 +1,4 @@
+# apps/protocolos/views.py
 from __future__ import annotations
 
 from collections import defaultdict
@@ -30,26 +31,32 @@ from .models import (
 )
 from .utils import setor_esta_pendente_de_recebimento
 
+
 # =============================================================================
-# Helpers de permissão
+# Helpers
 # =============================================================================
 
-def _qs_processos_com_setor_atual():
-    last_mov = (
+def _last_mov_subquery():
+    return (
         MovimentacaoProcesso.objects
         .filter(processo=OuterRef("pk"))
         .order_by("-registrado_em")
     )
 
+
+def _qs_processos_com_setor_atual():
+    last_mov = _last_mov_subquery()
+
     return (
         Processo.objects.all()
-        .select_related("tipo_processo", "criado_por")
+        .select_related("tipo_processo", "criado_por", "responsavel_setor")
         .annotate(
             ultima_tramitacao=Subquery(last_mov.values("registrado_em")[:1]),
             setor_atual=Subquery(last_mov.values("departamento_destino__nome")[:1]),
             setor_atual_id=Subquery(last_mov.values("departamento_destino_id")[:1]),
         )
     )
+
 
 def _papel_usuario(user):
     perfil = getattr(user, "perfil", None)
@@ -60,36 +67,61 @@ def _somente_admin_ou_protocolista(user):
     return _papel_usuario(user) in ("ADMIN", "PROTOCOLISTA")
 
 
+def _somente_admin(user):
+    return _papel_usuario(user) == "ADMIN"
+
+
+def _usuario_tem_vinculo_com_setor(user, setor: Departamento) -> bool:
+    """
+    ✅ Compatível com seus models:
+    - responsável/substituto OU
+    - membro ativo (Departamento.membros)
+    """
+    if not setor:
+        return False
+
+    if setor.responsavel_id == user.id or setor.substituto_id == user.id:
+        return True
+
+    return setor.membros.filter(user_id=user.id, ativo=True).exists()
+
+
 def _aplicar_efeitos_movimentacao_no_processo(processo: Processo, mov: MovimentacaoProcesso) -> None:
     """
     Mantém o Processo consistente com a movimentação recém-criada.
-
-    Regras:
-    - ARQUIVADO -> status ARQUIVADO
-    - ENCAMINHADO -> limpa recebido_* (fica pendente de recebimento no novo setor)
-    - RECEBIDO -> atualiza recebido_* com quem recebeu e quando
+    + ✅ Setores multiusuário: ao mudar de setor, limpa responsavel_setor.
     """
     if mov.acao == MovimentacaoProcesso.Acao.ARQUIVADO:
         processo.status = Processo.Status.ARQUIVADO
         processo.save(update_fields=["status"])
         return
 
-    if mov.acao == MovimentacaoProcesso.Acao.ENCAMINHADO:
-        processo.recebido_em = None
-        processo.recebido_por = None
+    if mov.acao in (MovimentacaoProcesso.Acao.ENCAMINHADO, MovimentacaoProcesso.Acao.DEVOLVIDO):
+        # ✅ mudou de setor -> limpa atribuição interna do setor anterior
+        if hasattr(processo, "responsavel_setor"):
+            processo.responsavel_setor = None
+
+        # ao encaminhar interno, zera recebido_*
+        if mov.tipo_tramitacao == MovimentacaoProcesso.TipoTramitacao.INTERNA:
+            processo.recebido_em = None
+            processo.recebido_por = None
 
         if hasattr(Processo.Status, "EM_TRAMITACAO"):
             processo.status = Processo.Status.EM_TRAMITACAO
-            processo.save(update_fields=["recebido_em", "recebido_por", "status"])
+            processo.save(update_fields=["recebido_em", "recebido_por", "status", "responsavel_setor"])
         else:
-            processo.save(update_fields=["recebido_em", "recebido_por"])
+            processo.save(update_fields=["recebido_em", "recebido_por", "responsavel_setor"])
         return
 
     if mov.acao == MovimentacaoProcesso.Acao.RECEBIDO:
-        processo.recebido_em = mov.registrado_em or timezone.now()
-        processo.recebido_por = mov.registrado_por
-        processo.save(update_fields=["recebido_em", "recebido_por"])
+        if mov.tipo_tramitacao == MovimentacaoProcesso.TipoTramitacao.INTERNA:
+            processo.recebido_em = mov.registrado_em or timezone.now()
+            processo.recebido_por = mov.registrado_por
+            processo.save(update_fields=["recebido_em", "recebido_por"])
         return
+
+    # RECEBIDO_EXTERNO: não altera recebido_* (é só histórico)
+
 
 # =============================================================================
 # Home
@@ -102,26 +134,16 @@ def home(request):
         return dashboard_admin(request)
     return dashboard_user(request)
 
+
 # =============================================================================
 # Processos - Listagem
 # =============================================================================
+
 @login_required
 def processos_list(request):
-    last_mov = (
-        MovimentacaoProcesso.objects
-        .filter(processo=OuterRef("pk"))
-        .order_by("-registrado_em")
-    )
-
     qs = (
-        Processo.objects.all()
-        .select_related("tipo_processo", "criado_por")
+        _qs_processos_com_setor_atual()
         .prefetch_related("interessados")
-        .annotate(
-            ultima_tramitacao=Subquery(last_mov.values("registrado_em")[:1]),
-            setor_atual=Subquery(last_mov.values("departamento_destino__nome")[:1]),
-            setor_atual_id=Subquery(last_mov.values("departamento_destino_id")[:1]),
-        )
         .order_by("-criado_em")
     )
 
@@ -133,14 +155,12 @@ def processos_list(request):
 
     if q:
         digits = re.sub(r"\D+", "", q)
-
         filtros = (
             Q(numero_formatado__icontains=q)
             | Q(assunto__icontains=q)
             | Q(descricao__icontains=q)
             | Q(interessados__nome__icontains=q)
         )
-
         if digits:
             filtros |= Q(interessados__cpf__icontains=digits)
 
@@ -158,8 +178,8 @@ def processos_list(request):
     if prioridade:
         qs = qs.filter(prioridade=prioridade)
 
-    tipos = TipoProcesso.objects.all().order_by("nome")
-    setores = Departamento.objects.all().order_by("nome")
+    tipos = TipoProcesso.objects.filter(ativo=True).order_by("nome")
+    setores = Departamento.objects.filter(ativo=True).order_by("nome")
 
     processos = list(qs)
     for p in processos:
@@ -175,26 +195,20 @@ def processos_list(request):
             "setores": setores,
             "status_choices": Processo.Status.choices,
             "prioridade_choices": Processo.Prioridade.choices,
-            "f": {
-                "q": q,
-                "tipo": tipo,
-                "setor": setor,
-                "status": status,
-                "prioridade": prioridade,
-            },
+            "f": {"q": q, "tipo": tipo, "setor": setor, "status": status, "prioridade": prioridade},
         },
     )
 
 
 # =============================================================================
-# Processo - Receber / Tramitar / Visualizar
+# Processo - Receber INTERNO
 # =============================================================================
 
 @require_POST
 @login_required
 def processo_receber(request, pk: int):
     processo = get_object_or_404(
-        Processo.objects.select_related("recebido_por", "tipo_processo", "criado_por")
+        Processo.objects.select_related("recebido_por", "tipo_processo", "criado_por", "responsavel_setor")
         .prefetch_related("movimentacoes"),
         pk=pk,
     )
@@ -209,15 +223,19 @@ def processo_receber(request, pk: int):
         messages.error(request, "Este processo ainda não foi encaminhado para nenhum setor.")
         return redirect("processo_detail", pk=processo.pk)
 
+    if setor_atual.tipo != Departamento.Tipo.INTERNO:
+        messages.warning(
+            request,
+            f"Este processo está em um órgão EXTERNO ({setor_atual.nome}). "
+            f"Use apenas o RETORNO DO ÓRGÃO EXTERNO para voltar ao interno."
+        )
+        return redirect("processo_detail", pk=processo.pk)
+
     papel = _papel_usuario(request.user)
     eh_admin = (papel == "ADMIN")
 
-    eh_responsavel = (
-        setor_atual.responsavel_id == request.user.id
-        or setor_atual.substituto_id == request.user.id
-    )
-
-    if not (eh_admin or eh_responsavel):
+    tem_vinculo = _usuario_tem_vinculo_com_setor(request.user, setor_atual)
+    if not (eh_admin or tem_vinculo):
         return HttpResponseForbidden("Você não tem permissão para receber este processo neste setor.")
 
     if not pendente:
@@ -246,10 +264,169 @@ def processo_receber(request, pk: int):
     return redirect("caixa_entrada")
 
 
+# =============================================================================
+# Processo - Retorno do órgão externo
+# =============================================================================
+
+@require_POST
+@login_required
+def processo_retorno_externo(request, pk: int):
+    processo = get_object_or_404(
+        Processo.objects.select_related("tipo_processo", "criado_por", "recebido_por", "responsavel_setor")
+        .prefetch_related("movimentacoes"),
+        pk=pk,
+    )
+
+    if processo.status == Processo.Status.ARQUIVADO:
+        messages.error(request, "Processo arquivado: não é possível registrar retorno.")
+        return redirect("processo_detail", pk=processo.pk)
+
+    _pendente, setor_atual = setor_esta_pendente_de_recebimento(processo)
+    if not setor_atual:
+        messages.error(request, "Este processo ainda não possui setor atual.")
+        return redirect("processo_detail", pk=processo.pk)
+
+    if setor_atual.tipo != Departamento.Tipo.EXTERNO:
+        messages.info(request, "Este processo não está em órgão EXTERNO.")
+        return redirect("processo_detail", pk=processo.pk)
+
+    destino_id = (request.POST.get("destino_interno") or "").strip()
+    if not destino_id:
+        messages.error(request, "Selecione o setor interno de destino.")
+        return redirect("processo_detail", pk=processo.pk)
+
+    destino = get_object_or_404(
+        Departamento,
+        pk=destino_id,
+        tipo=Departamento.Tipo.INTERNO,
+        ativo=True,
+    )
+
+    papel = _papel_usuario(request.user)
+    eh_admin = (papel == "ADMIN")
+
+    # regra segura: ADMIN pode; demais, precisa ter vínculo com o destino
+    if not eh_admin:
+        if not _usuario_tem_vinculo_com_setor(request.user, destino):
+            return HttpResponseForbidden("Você não tem permissão para registrar retorno para este setor interno.")
+
+    with transaction.atomic():
+        mov = MovimentacaoProcesso.objects.create(
+            processo=processo,
+            tipo_tramitacao=MovimentacaoProcesso.TipoTramitacao.EXTERNA,
+            acao=MovimentacaoProcesso.Acao.DEVOLVIDO,
+            departamento_origem=setor_atual,
+            departamento_destino=destino,
+            observacao=(
+                f"RETORNO DO ÓRGÃO EXTERNO: {setor_atual.nome} -> {destino.nome}. "
+                f"Registrado por {request.user.username}."
+            ),
+            registrado_por=request.user,
+            registrado_em=timezone.now(),
+        )
+
+        # ao voltar do externo, fica pendente de recebimento no destino interno:
+        processo.recebido_em = None
+        processo.recebido_por = None
+        processo.responsavel_setor = None
+        processo.save(update_fields=["recebido_em", "recebido_por", "responsavel_setor"])
+
+        _aplicar_efeitos_movimentacao_no_processo(processo, mov)
+
+    messages.success(request, f"Retorno registrado: {setor_atual.nome} → {destino.nome}.")
+    return redirect("processo_detail", pk=processo.pk)
+
+
+# =============================================================================
+# ✅ Setores multiusuário - Pegar / Liberar
+# =============================================================================
+
+@require_POST
+@login_required
+def processo_pegar_setor(request, pk: int):
+    """
+    Atribui o processo ao usuário dentro do setor atual.
+    Regras:
+    - Só funciona em setor INTERNO.
+    - Só pode pegar se NÃO estiver pendente de recebimento.
+    - Só membro do setor (ou ADMIN).
+    - Se já estiver atribuído a outro, só ADMIN pode trocar.
+    """
+    processo = get_object_or_404(
+        Processo.objects.select_related("tipo_processo", "criado_por", "responsavel_setor")
+        .prefetch_related("movimentacoes"),
+        pk=pk,
+    )
+
+    if processo.status == Processo.Status.ARQUIVADO:
+        messages.error(request, "Processo arquivado: não é possível atribuir.")
+        return redirect("processo_detail", pk=processo.pk)
+
+    pendente, setor_atual = setor_esta_pendente_de_recebimento(processo)
+    if not setor_atual or setor_atual.tipo != Departamento.Tipo.INTERNO:
+        messages.error(request, "Este processo não está em um setor interno.")
+        return redirect("processo_detail", pk=processo.pk)
+
+    papel = _papel_usuario(request.user)
+    eh_admin = (papel == "ADMIN")
+
+    if not eh_admin and not _usuario_tem_vinculo_com_setor(request.user, setor_atual):
+        return HttpResponseForbidden("Você não tem permissão para pegar processos deste setor.")
+
+    if pendente:
+        messages.error(request, "Primeiro receba o processo no setor para depois atribuir.")
+        return redirect("processo_detail", pk=processo.pk)
+
+    atual_id = getattr(processo, "responsavel_setor_id", None)
+    if atual_id and atual_id != request.user.id and not eh_admin:
+        messages.error(request, "Este processo já está atribuído a outro servidor.")
+        return redirect("processo_detail", pk=processo.pk)
+
+    processo.responsavel_setor = request.user
+    processo.save(update_fields=["responsavel_setor"])
+    messages.success(request, "Processo atribuído a você.")
+    return redirect("processo_detail", pk=processo.pk)
+
+
+@require_POST
+@login_required
+def processo_liberar_setor(request, pk: int):
+    """
+    Remove a atribuição do processo (volta a ficar 'disponível' no setor).
+    Regras:
+    - Só responsável atual ou ADMIN pode liberar.
+    """
+    processo = get_object_or_404(
+        Processo.objects.select_related("responsavel_setor")
+        .prefetch_related("movimentacoes"),
+        pk=pk,
+    )
+
+    papel = _papel_usuario(request.user)
+    eh_admin = (papel == "ADMIN")
+
+    atual_id = getattr(processo, "responsavel_setor_id", None)
+    if not atual_id:
+        messages.info(request, "Este processo já está sem responsável no setor.")
+        return redirect("processo_detail", pk=processo.pk)
+
+    if not eh_admin and atual_id != request.user.id:
+        return HttpResponseForbidden("Somente o responsável (ou ADMIN) pode liberar este processo.")
+
+    processo.responsavel_setor = None
+    processo.save(update_fields=["responsavel_setor"])
+    messages.success(request, "Atribuição removida. Processo disponível no setor.")
+    return redirect("processo_detail", pk=processo.pk)
+
+
+# =============================================================================
+# Processo - Detail / View
+# =============================================================================
+
 @login_required
 def processo_detail(request, pk: int):
     processo = get_object_or_404(
-        Processo.objects.select_related("tipo_processo", "criado_por", "recebido_por")
+        Processo.objects.select_related("tipo_processo", "criado_por", "recebido_por", "responsavel_setor")
         .prefetch_related("interessados", "movimentacoes"),
         pk=pk,
     )
@@ -258,27 +435,77 @@ def processo_detail(request, pk: int):
 
     papel = _papel_usuario(request.user)
     eh_admin = (papel == "ADMIN")
+    eh_protocolista = (papel == "PROTOCOLISTA")
 
-    eh_responsavel = False
-    if setor_atual:
-        eh_responsavel = (
-            setor_atual.responsavel_id == request.user.id
-            or setor_atual.substituto_id == request.user.id
+    em_setor_externo = bool(setor_atual) and setor_atual.tipo == Departamento.Tipo.EXTERNO
+
+    # pode receber (somente quando setor atual é INTERNO e está pendente)
+    tem_vinculo = False
+    if setor_atual and setor_atual.tipo == Departamento.Tipo.INTERNO:
+        tem_vinculo = _usuario_tem_vinculo_com_setor(request.user, setor_atual)
+
+    pode_receber = bool(setor_atual) and (setor_atual.tipo == Departamento.Tipo.INTERNO) and pendente_recebimento and (eh_admin or tem_vinculo)
+
+    # lista de setores internos para o RETORNO EXTERNO
+    setores_internos = Departamento.objects.filter(tipo=Departamento.Tipo.INTERNO, ativo=True).order_by("nome")
+
+    movimentacoes = (
+        processo.movimentacoes.select_related(
+            "departamento_origem", "departamento_destino", "registrado_por"
         )
+        .order_by("-registrado_em")
+    )
 
-    pode_receber = bool(setor_atual) and pendente_recebimento and (eh_admin or eh_responsavel)
+    # ==========================
+    # ✅ Setor multiusuário
+    # ==========================
+    responsavel_setor = getattr(processo, "responsavel_setor", None)
+    bloqueado_por_atribuicao = bool(responsavel_setor) and (responsavel_setor.id != request.user.id) and (not eh_admin)
 
-    movimentacoes = processo.movimentacoes.select_related(
-        "departamento_origem", "departamento_destino", "registrado_por"
-    ).order_by("-registrado_em")
+    pode_pegar = False
+    pode_liberar = False
 
-    if request.method == "POST" and processo.status == Processo.Status.ARQUIVADO:
-        messages.error(request, "Processo arquivado: não é possível tramitar.")
-        return redirect("processo_detail", pk=processo.pk)
+    if setor_atual and setor_atual.tipo == Departamento.Tipo.INTERNO and (eh_admin or tem_vinculo):
+        if not pendente_recebimento and processo.status != Processo.Status.ARQUIVADO:
+            if responsavel_setor is None:
+                pode_pegar = True
+            elif responsavel_setor.id == request.user.id:
+                pode_liberar = True
+            else:
+                # atribuído a outro -> ADMIN pode tomar (via pegar)
+                if eh_admin:
+                    pode_pegar = True
 
+    # ==========================
+    # POST (tramitação via form)
+    # ==========================
     if request.method == "POST":
+        if processo.status == Processo.Status.ARQUIVADO:
+            messages.error(request, "Processo arquivado: não é possível tramitar.")
+            return redirect("processo_detail", pk=processo.pk)
+
+        # externo: trava
+        if em_setor_externo:
+            messages.warning(
+                request,
+                f"Processo está em órgão EXTERNO ({setor_atual.nome}). "
+                f"Utilize apenas a opção de RETORNO DO ÓRGÃO EXTERNO."
+            )
+            return redirect("processo_detail", pk=processo.pk)
+
+        # trava enquanto pendente
         if pendente_recebimento:
-            messages.error(request, "Aguardando recebimento do responsável do setor antes de tramitar.")
+            messages.error(request, "Aguardando recebimento do setor antes de tramitar.")
+            return redirect("processo_detail", pk=processo.pk)
+
+        # ✅ trava por atribuição (setor multiusuário)
+        if bloqueado_por_atribuicao:
+            messages.error(request, f"Tramitação bloqueada: processo atribuído a {responsavel_setor.username}.")
+            return redirect("processo_detail", pk=processo.pk)
+
+        # ✅ trava de protocolista fora do PG
+        if eh_protocolista and setor_atual and (not getattr(setor_atual, "eh_protocolo_geral", False)):
+            messages.error(request, "Protocolista só pode tramitar enquanto estiver no PROTOCOLO GERAL.")
             return redirect("processo_detail", pk=processo.pk)
 
         form = MovimentacaoForm(request.POST, processo=processo, user=request.user)
@@ -287,6 +514,32 @@ def processo_detail(request, pk: int):
                 mov = form.save(commit=False)
                 mov.processo = processo
                 mov.registrado_por = request.user
+                if not mov.registrado_em:
+                    mov.registrado_em = timezone.now()
+
+                # ==========================================================
+                # ✅ CORREÇÃO PRINCIPAL: ORIGEM E REGRAS DO ARQUIVAMENTO
+                # ==========================================================
+
+                # garante origem = setor atual (sempre)
+                if setor_atual and not mov.departamento_origem_id:
+                    mov.departamento_origem = setor_atual
+
+                # ✅ se o usuário tentar arquivar fora do ARQUIVO GERAL -> bloqueia
+                if mov.acao == MovimentacaoProcesso.Acao.ARQUIVADO:
+                    if not setor_atual or not getattr(setor_atual, "eh_arquivo_geral", False):
+                        messages.error(request, "Só é possível arquivar quando o processo estiver no ARQUIVO GERAL.")
+                        return redirect("processo_detail", pk=processo.pk)
+
+                    # destino automático = ARQUIVO GERAL
+                    mov.departamento_destino = setor_atual
+
+                    # tipo interno (arquivamento sempre é interno)
+                    mov.tipo_tramitacao = MovimentacaoProcesso.TipoTramitacao.INTERNA
+
+                    if not mov.observacao:
+                        mov.observacao = "Arquivado no ARQUIVO GERAL."
+
                 mov.save()
 
                 _aplicar_efeitos_movimentacao_no_processo(processo, mov)
@@ -298,6 +551,24 @@ def processo_detail(request, pk: int):
     else:
         form = MovimentacaoForm(processo=processo, user=request.user)
 
+        # ==========================================================
+        # ✅ CORREÇÃO: esconder 'ARQUIVADO' fora do ARQUIVO GERAL (GET)
+        # ==========================================================
+        if setor_atual and not getattr(setor_atual, "eh_arquivo_geral", False):
+            if "acao" in form.fields:
+                form.fields["acao"].choices = [
+                    c for c in form.fields["acao"].choices
+                    if c[0] != MovimentacaoProcesso.Acao.ARQUIVADO
+                ]
+
+        if em_setor_externo:
+            for f in form.fields.values():
+                f.disabled = True
+            if "observacao" in form.fields:
+                form.fields["observacao"].help_text = (
+                    "Processo em órgão EXTERNO. Use o botão de RETORNO DO ÓRGÃO EXTERNO."
+                )
+
     return render(
         request,
         "protocolos/processo_detail.html",
@@ -306,8 +577,16 @@ def processo_detail(request, pk: int):
             "movimentacoes": movimentacoes,
             "form": form,
             "setor_atual": setor_atual,
-            "pode_receber": pode_receber,
             "pendente_recebimento": pendente_recebimento,
+            "pode_receber": pode_receber,
+            "em_setor_externo": em_setor_externo,
+            "setores_internos": setores_internos,
+
+            # ✅ Multiusuário
+            "responsavel_setor": responsavel_setor,
+            "pode_pegar": pode_pegar,
+            "pode_liberar": pode_liberar,
+            "bloqueado_por_atribuicao": bloqueado_por_atribuicao,
         },
     )
 
@@ -315,7 +594,7 @@ def processo_detail(request, pk: int):
 @login_required
 def processo_view(request, pk: int):
     processo = get_object_or_404(
-        Processo.objects.select_related("tipo_processo", "criado_por", "recebido_por")
+        Processo.objects.select_related("tipo_processo", "criado_por", "recebido_por", "responsavel_setor")
         .prefetch_related("interessados", "movimentacoes"),
         pk=pk,
     )
@@ -341,6 +620,7 @@ def processo_view(request, pk: int):
 # =============================================================================
 # Caixa de Entrada
 # =============================================================================
+
 @login_required
 def caixa_entrada(request):
     papel = _papel_usuario(request.user)
@@ -350,9 +630,17 @@ def caixa_entrada(request):
     setores_map = {}
 
     if not eh_admin:
-        setores = Departamento.objects.filter(
-            Q(responsavel_id=request.user.id) | Q(substituto_id=request.user.id)
-        ).order_by("nome")
+        setores = (
+            Departamento.objects
+            .filter(tipo=Departamento.Tipo.INTERNO, ativo=True)
+            .filter(
+                Q(responsavel_id=request.user.id)
+                | Q(substituto_id=request.user.id)
+                | Q(membros__user_id=request.user.id, membros__ativo=True)
+            )
+            .distinct()
+            .order_by("nome")
+        )
 
         setores_ids = list(set(setores.values_list("id", flat=True)))
         setores_map = {s.id: s for s in setores}
@@ -369,26 +657,19 @@ def caixa_entrada(request):
                 },
             )
 
-    last_mov = (
-        MovimentacaoProcesso.objects
-        .filter(processo=OuterRef("pk"))
-        .order_by("-registrado_em")
-    )
-
     qs = (
-        Processo.objects.all()
-        .select_related("tipo_processo", "criado_por")
+        _qs_processos_com_setor_atual()
         .prefetch_related("interessados")
-        .annotate(
-            ultima_tramitacao=Subquery(last_mov.values("registrado_em")[:1]),
-            setor_atual=Subquery(last_mov.values("departamento_destino__nome")[:1]),
-            setor_atual_id=Subquery(last_mov.values("departamento_destino_id")[:1]),
-        )
         .order_by("-criado_em")
     )
 
     if not eh_admin:
         qs = qs.filter(setor_atual_id__in=setores_ids)
+
+        # ✅ MOSTRA APENAS:
+        # - processos sem responsável no setor (disponíveis)
+        # - processos atribuídos a mim
+        qs = qs.filter(Q(responsavel_setor__isnull=True) | Q(responsavel_setor_id=request.user.id))
 
     processos = list(qs)
 
@@ -441,25 +722,26 @@ def caixa_entrada(request):
 
 
 # =============================================================================
-# Processo - Create (PROTOCOLO GERAL) - AJUSTADO PARA ano/numero_manual
+# Processo - Create (PROTOCOLO GERAL)
 # =============================================================================
+
 @login_required
 def processo_create(request):
     if not _somente_admin_ou_protocolista(request.user):
         return HttpResponseForbidden("Você não tem permissão para criar processos.")
 
     protocolo_geral = Departamento.objects.filter(
-        nome__iexact="PROTOCOLO GERAL",
+        eh_protocolo_geral=True,
         tipo=Departamento.Tipo.INTERNO,
         ativo=True,
     ).first()
 
     if not protocolo_geral:
-        messages.error(request, 'Departamento "PROTOCOLO GERAL" (INTERNO/ativo) não encontrado.')
+        messages.error(request, 'Departamento marcado como "PROTOCOLO GERAL" não encontrado (INTERNO/ativo).')
         return redirect("home")
 
     pessoa = None
-    pessoa_status = None  # "ok" | "nao_encontrada"
+    pessoa_status = None
 
     if request.method == "POST":
         form = ProcessoCreateForm(request.POST)
@@ -514,7 +796,8 @@ def processo_create(request):
 
                 processo.recebido_em = timezone.now()
                 processo.recebido_por = request.user
-                processo.save(update_fields=["recebido_em", "recebido_por"])
+                processo.responsavel_setor = None
+                processo.save(update_fields=["recebido_em", "recebido_por", "responsavel_setor"])
 
                 _aplicar_efeitos_movimentacao_no_processo(processo, mov)
 
@@ -535,6 +818,7 @@ def processo_create(request):
 # =============================================================================
 # API AJAX - Lookup Pessoa (CPF ou Nome)
 # =============================================================================
+
 @require_GET
 @login_required
 def pessoa_lookup(request):
@@ -563,13 +847,14 @@ def pessoa_lookup(request):
 # =============================================================================
 # Pessoas (Requerentes)
 # =============================================================================
+
 @login_required
 def pessoas_list(request):
     if not _somente_admin_ou_protocolista(request.user):
         return HttpResponseForbidden("Você não tem permissão para acessar o cadastro de pessoas.")
 
     q = (request.GET.get("q") or "").strip()
-    ativo = (request.GET.get("ativo") or "").strip()  # "", "1", "0"
+    ativo = (request.GET.get("ativo") or "").strip()
 
     qs = Pessoa.objects.all().order_by("nome")
 
@@ -648,6 +933,10 @@ def pessoa_toggle_ativo(request, pk: int):
     return redirect("pessoas_list")
 
 
+# =============================================================================
+# Dashboards
+# =============================================================================
+
 @login_required
 def dashboard_admin(request):
     papel = _papel_usuario(request.user)
@@ -661,32 +950,22 @@ def dashboard_admin(request):
     arquivados = qs.filter(status=Processo.Status.ARQUIVADO).count()
 
     pendentes = 0
-    ultimos = list(
-        qs.prefetch_related("interessados")
-          .order_by("-criado_em")[:8]
-    )
+    ultimos = list(qs.prefetch_related("interessados").order_by("-criado_em")[:8])
+
     processos = list(qs.order_by("-criado_em")[:300])
     for p in processos:
         pend, _setor = setor_esta_pendente_de_recebimento(p)
         if pend:
             pendentes += 1
 
-    por_status = (
-        qs.values("status")
-          .annotate(qtd=Count("id"))
-          .order_by("status")
-    )
-    por_prioridade = (
-        qs.values("prioridade")
-          .annotate(qtd=Count("id"))
-          .order_by("prioridade")
-    )
+    por_status = qs.values("status").annotate(qtd=Count("id")).order_by("status")
+    por_prioridade = qs.values("prioridade").annotate(qtd=Count("id")).order_by("prioridade")
 
     por_setor = (
         qs.exclude(setor_atual_id__isnull=True)
-          .values("setor_atual_id", "setor_atual")
-          .annotate(qtd=Count("id"))
-          .order_by("-qtd", "setor_atual")
+        .values("setor_atual_id", "setor_atual")
+        .annotate(qtd=Count("id"))
+        .order_by("-qtd", "setor_atual")
     )[:10]
 
     return render(
@@ -694,12 +973,7 @@ def dashboard_admin(request):
         "protocolos/dashboard_admin.html",
         {
             "papel": papel,
-            "cards": {
-                "total": total,
-                "ativos": ativos,
-                "arquivados": arquivados,
-                "pendentes": pendentes,
-            },
+            "cards": {"total": total, "ativos": ativos, "arquivados": arquivados, "pendentes": pendentes},
             "por_status": list(por_status),
             "por_prioridade": list(por_prioridade),
             "por_setor": list(por_setor),
@@ -715,23 +989,28 @@ def dashboard_user(request):
 
     qs = _qs_processos_com_setor_atual()
 
-    setores = Departamento.objects.filter(
-        Q(responsavel_id=request.user.id) | Q(substituto_id=request.user.id),
-        ativo=True,
-    ).order_by("nome")
+    setores = (
+        Departamento.objects
+        .filter(tipo=Departamento.Tipo.INTERNO, ativo=True)
+        .filter(
+            Q(responsavel_id=request.user.id)
+            | Q(substituto_id=request.user.id)
+            | Q(membros__user_id=request.user.id, membros__ativo=True)
+        )
+        .distinct()
+        .order_by("nome")
+    )
 
     setores_ids = list(set(setores.values_list("id", flat=True)))
 
     if not eh_admin:
         qs = qs.filter(setor_atual_id__in=setores_ids)
+        qs = qs.filter(Q(responsavel_setor__isnull=True) | Q(responsavel_setor_id=request.user.id))
 
     pendentes = []
     no_setor = []
 
-    processos = list(
-        qs.prefetch_related("interessados")
-          .order_by("-criado_em")[:300]
-    )
+    processos = list(qs.prefetch_related("interessados").order_by("-criado_em")[:300])
 
     for p in processos:
         pend, setor_atual = setor_esta_pendente_de_recebimento(p)
@@ -744,10 +1023,7 @@ def dashboard_user(request):
         else:
             no_setor.append(p)
 
-    ultimos = list(
-        qs.prefetch_related("interessados")
-          .order_by("-criado_em")[:8]
-    )
+    ultimos = list(qs.prefetch_related("interessados").order_by("-criado_em")[:8])
 
     return render(
         request,
@@ -767,24 +1043,18 @@ def dashboard_user(request):
         },
     )
 
+
 # =============================================================================
-# CADASTROS (ADMIN) - NOVAS VIEWS
+# CADASTROS (ADMIN)
 # =============================================================================
 
-def _somente_admin(user):
-    return _papel_usuario(user) == "ADMIN"
-
-
-# --------------------------
-# TIPOS DE PROCESSO
-# --------------------------
 @login_required
 def tipos_list(request):
     if not _somente_admin(request.user):
         return HttpResponseForbidden("Somente ADMIN pode acessar cadastros.")
 
     q = (request.GET.get("q") or "").strip()
-    ativo = (request.GET.get("ativo") or "").strip()  # "", "1", "0"
+    ativo = (request.GET.get("ativo") or "").strip()
 
     qs = TipoProcesso.objects.all().order_by("nome")
     if q:
@@ -849,9 +1119,6 @@ def tipo_toggle_ativo(request, pk: int):
     return redirect("tipos_list")
 
 
-# --------------------------
-# DEPARTAMENTOS
-# --------------------------
 @login_required
 def deptos_list(request):
     if not _somente_admin(request.user):
@@ -936,9 +1203,6 @@ def depto_toggle_ativo(request, pk: int):
     return redirect("deptos_list")
 
 
-# --------------------------
-# MEMBROS DO DEPARTAMENTO
-# --------------------------
 @login_required
 def depto_membros(request, pk: int):
     if not _somente_admin(request.user):
@@ -983,3 +1247,62 @@ def depto_membro_toggle(request, pk: int, membro_id: int):
     membro.save(update_fields=["ativo"])
     messages.success(request, f"Membro {'ATIVADO' if membro.ativo else 'DESATIVADO'}.")
     return redirect("depto_membros", pk=depto.pk)
+
+
+# =============================================================================
+# AJAX destinos (para atualizar o select conforme tipo/ação)
+# =============================================================================
+
+@require_GET
+@login_required
+def destinos_departamento_lookup(request, pk: int):
+    """
+    Retorna destinos possíveis para o processo (pk),
+    baseado em tipo_tramitacao + acao selecionados na tela.
+    """
+    processo = get_object_or_404(Processo.objects.prefetch_related("movimentacoes"), pk=pk)
+
+    tipo = (request.GET.get("tipo") or "").strip()
+    acao = (request.GET.get("acao") or "").strip()
+
+    # ✅ se for ARQUIVADO: não existe destino para escolher (vai ser automático)
+    if acao == MovimentacaoProcesso.Acao.ARQUIVADO:
+        return JsonResponse({"results": []})
+
+    last = (
+        processo.movimentacoes
+        .select_related("departamento_origem", "departamento_destino")
+        .order_by("-registrado_em")
+        .first()
+    )
+    origem = (last.departamento_destino or last.departamento_origem) if last else None
+
+    if not origem:
+        origem = Departamento.objects.filter(eh_protocolo_geral=True, tipo=Departamento.Tipo.INTERNO, ativo=True).first()
+
+    if not origem:
+        return JsonResponse({"results": []})
+
+    if origem.tipo == Departamento.Tipo.EXTERNO:
+        return JsonResponse({"results": []})
+
+    qs = Departamento.objects.filter(ativo=True)
+
+    if tipo == MovimentacaoProcesso.TipoTramitacao.INTERNA:
+        qs = qs.filter(tipo=Departamento.Tipo.INTERNO)
+
+    elif tipo == MovimentacaoProcesso.TipoTramitacao.EXTERNA:
+        if acao == MovimentacaoProcesso.Acao.DEVOLVIDO:
+            qs = qs.filter(tipo=Departamento.Tipo.INTERNO)
+        else:
+            qs = qs.filter(tipo=Departamento.Tipo.EXTERNO)
+    else:
+        qs = qs.filter(tipo=Departamento.Tipo.INTERNO)
+
+    if not getattr(origem, "eh_protocolo_geral", False):
+        qs = qs.exclude(eh_protocolo_geral=True)
+
+    qs = qs.exclude(id=origem.id)
+
+    results = [{"id": d.id, "nome": d.nome} for d in qs.order_by("nome")]
+    return JsonResponse({"results": results})

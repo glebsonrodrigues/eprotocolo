@@ -1,3 +1,5 @@
+# apps/protocolos/models/cadastros.py
+
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import EmailValidator
@@ -93,8 +95,17 @@ class Departamento(models.Model):
     # ✅ flags robustas (não depende de nome)
     eh_protocolo_geral = models.BooleanField(default=False)
     eh_arquivo_geral = models.BooleanField(default=False)
+    
+    @property
+    def membros_ativos_qs(self):
+        return self.membros.filter(ativo=True).select_related("user")
 
-    # ✅ seus campos atuais (podem continuar existindo)
+    @property
+    def tem_multiples_membros(self) -> bool:
+        return self.membros.filter(ativo=True).count() > 1
+
+
+    # ✅ responsável/substituto opcionais (principalmente para EXTERNO)
     responsavel = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
@@ -129,16 +140,17 @@ class Departamento(models.Model):
         if self.responsavel and self.substituto and self.responsavel_id == self.substituto_id:
             raise ValidationError({"substituto": "Substituto não pode ser o mesmo usuário do responsável."})
 
-        # ✅ departamento ATIVO precisa ter alguém “responsável”
-        # (aceita: responsavel OU ao menos 1 membro ativo)
-        if self.ativo:
+        # ✅ REGRA CORRIGIDA:
+        # Departamento ATIVO *INTERNO* precisa ter responsável OU ao menos 1 membro ativo.
+        # Departamento EXTERNO pode ser ativo sem responsável/membros.
+        if self.ativo and self.tipo == self.Tipo.INTERNO:
             tem_membro_ativo = False
             if self.pk:
                 tem_membro_ativo = self.membros.filter(ativo=True).exists()
 
             if not self.responsavel and not tem_membro_ativo:
                 raise ValidationError(
-                    {"responsavel": "Departamento ativo deve ter um responsável OU ao menos 1 membro ativo."}
+                    {"responsavel": "Departamento interno ativo deve ter um responsável OU ao menos 1 membro ativo."}
                 )
 
         # ✅ PROTOCOLO GERAL deve ser INTERNO e ativo + único
@@ -165,15 +177,21 @@ class Departamento(models.Model):
             if qs.exists():
                 raise ValidationError({"eh_arquivo_geral": "Já existe um ARQUIVO GERAL cadastrado."})
 
+    def save(self, *args, **kwargs):
+        # garante que as validações do clean() rodem sempre
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
     def __str__(self) -> str:
         return f"{self.nome} ({self.tipo})"
-
+    
 
 class DepartamentoMembro(models.Model):
     """
     ✅ Opção B: múltiplos membros por setor.
     Isso resolve “quem faz parte do setor” (inclusive ARQUIVO GERAL).
     """
+
     departamento = models.ForeignKey(
         Departamento,
         on_delete=models.CASCADE,

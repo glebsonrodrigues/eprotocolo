@@ -8,10 +8,16 @@ from django.core.validators import EmailValidator
 from django.core.exceptions import ValidationError
 
 from core.validators import only_digits, validate_cpf
-from .models import Departamento, DepartamentoMembro, MovimentacaoProcesso, Pessoa, Processo, TipoProcesso
+from .models import (
+    Departamento,
+    DepartamentoMembro,
+    MovimentacaoProcesso,
+    Pessoa,
+    Processo,
+    TipoProcesso,
+)
 
 PROTOCOLO_GERAL_NOME = "PROTOCOLO GERAL"
-
 REGEX_NUMERO_PROCESSO = re.compile(r"^\d{4}/\d{2}$")
 
 
@@ -38,7 +44,6 @@ def _normalize_numero_processo(raw: str) -> str:
     if len(digits) == 6:
         s = f"{digits[:4]}/{digits[4:6]}"
     else:
-        # tenta manter formato se veio com barra
         s = s.replace(" ", "")
         if "/" not in s and len(digits) == 6:
             s = f"{digits[:4]}/{digits[4:6]}"
@@ -48,20 +53,76 @@ def _normalize_numero_processo(raw: str) -> str:
 
     return s
 
-
 # -----------------------------------------------------------------------------
 # PESSOAS
 # -----------------------------------------------------------------------------
 class PessoaForm(forms.ModelForm):
+    # ✅ Sobrescreve os campos para aceitar a MÁSCARA (14/15 chars)
+    cpf = forms.CharField(
+        label="CPF",
+        max_length=14,  # 000.000.000-00
+        widget=forms.TextInput(
+            attrs={
+                "class": "form-control no-uppercase",
+                "placeholder": "000.000.000-00",
+                "autocomplete": "off",
+                "inputmode": "numeric",
+                "type": "text",
+                "maxlength": "14",
+            }
+        ),
+    )
+
+    telefone = forms.CharField(
+        label="Telefone",
+        max_length=15,  # (99) 99999-9999
+        widget=forms.TextInput(
+            attrs={
+                "class": "form-control no-uppercase",
+                "placeholder": "(99) 99999-9999",
+                "autocomplete": "off",
+                "inputmode": "numeric",
+                "type": "text",
+                "maxlength": "15",
+            }
+        ),
+    )
+
+    whatsapp = forms.CharField(
+        label="WhatsApp",
+        required=False,
+        max_length=15,
+        widget=forms.TextInput(
+            attrs={
+                "class": "form-control no-uppercase",
+                "placeholder": "(99) 99999-9999",
+                "autocomplete": "off",
+                "inputmode": "numeric",
+                "type": "text",
+                "maxlength": "15",
+            }
+        ),
+    )
+
     class Meta:
         model = Pessoa
         fields = ["nome", "cpf", "email", "telefone", "whatsapp", "ativo"]
         widgets = {
-            "nome": forms.TextInput(attrs={"placeholder": "Nome completo"}),
-            "cpf": forms.TextInput(attrs={"placeholder": "Somente números (11 dígitos)"}),
-            "email": forms.EmailInput(attrs={"placeholder": "email@exemplo.com"}),
-            "telefone": forms.TextInput(attrs={"placeholder": "DDD + número (somente números)"}),
-            "whatsapp": forms.TextInput(attrs={"placeholder": "DDD + número (somente números)"}),
+            "nome": forms.TextInput(
+                attrs={
+                    "class": "form-control",
+                    "placeholder": "Nome completo",
+                    "autocomplete": "off",
+                }
+            ),
+            "email": forms.EmailInput(
+                attrs={
+                    "class": "form-control",
+                    "placeholder": "email@exemplo.com",
+                    "autocomplete": "off",
+                }
+            ),
+            "ativo": forms.CheckboxInput(attrs={"class": "form-check-input"}),
         }
 
     def clean_nome(self):
@@ -71,6 +132,8 @@ class PessoaForm(forms.ModelForm):
     def clean_cpf(self):
         cpf = self.cleaned_data.get("cpf") or ""
         cpf = only_digits(cpf)
+
+        # ✅ valida e retorna somente dígitos
         cpf = validate_cpf(cpf)
 
         qs = Pessoa.objects.filter(cpf=cpf)
@@ -110,15 +173,23 @@ class MovimentacaoForm(forms.ModelForm):
     class Meta:
         model = MovimentacaoProcesso
         fields = ["tipo_tramitacao", "acao", "departamento_origem", "departamento_destino", "observacao"]
-        widgets = {"observacao": forms.Textarea(attrs={"rows": 3})}
+        widgets = {
+            "tipo_tramitacao": forms.Select(attrs={"class": "form-select"}),
+            "acao": forms.Select(attrs={"class": "form-select"}),
+            "departamento_destino": forms.Select(attrs={"class": "form-select"}),
+            "observacao": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
+        }
 
     def __init__(self, *args, **kwargs):
         self.processo = kwargs.pop("processo", None)
         self.user = kwargs.pop("user", None)
         super().__init__(*args, **kwargs)
 
+        # origem inferida (não aparece)
         self.fields["departamento_origem"].widget = forms.HiddenInput()
         self.fields["departamento_origem"].required = False
+
+        # destino pode ser vazio ao arquivar (mas no ARQUIVADO vamos setar = origem)
         self.fields["departamento_destino"].required = False
 
         origem = self._inferir_origem()
@@ -134,24 +205,61 @@ class MovimentacaoForm(forms.ModelForm):
             or self.initial.get("acao")
         )
 
+        # ---------------------------------------------------------------------
+        # ✅ Processo ARQUIVADO: bloqueia tudo
+        # ---------------------------------------------------------------------
         if self.processo and getattr(self.processo, "status", None) == Processo.Status.ARQUIVADO:
             for f in self.fields.values():
                 f.disabled = True
             self.fields["observacao"].help_text = "Processo arquivado: não é possível tramitar."
             return
 
+        # ---------------------------------------------------------------------
+        # ✅ BLOQUEIO FORTE quando setor atual é EXTERNO (inclusive UI)
+        # ---------------------------------------------------------------------
+        if origem and getattr(origem, "tipo", None) == Departamento.Tipo.EXTERNO:
+            for f in self.fields.values():
+                f.disabled = True
+            self.fields["observacao"].help_text = (
+                "Processo em órgão EXTERNO: tramitação bloqueada até retorno ao setor interno."
+            )
+            return
+
+        # ------------------------------------------------------------
+        # ✅ Remover "RECEBIDO" do formulário (receber é via botão)
+        # ------------------------------------------------------------
+        if "acao" in self.fields and self.fields["acao"].choices:
+            self.fields["acao"].choices = [
+                c for c in self.fields["acao"].choices
+                if c[0] != MovimentacaoProcesso.Acao.RECEBIDO
+            ]
+
+        # ------------------------------------------------------------
+        # ✅ Queryset de destino de acordo com tipo + ação
+        # ------------------------------------------------------------
+        destinos_qs = Departamento.objects.filter(tipo=Departamento.Tipo.INTERNO, ativo=True)
+
         if tipo == MovimentacaoProcesso.TipoTramitacao.INTERNA:
             destinos_qs = Departamento.objects.filter(tipo=Departamento.Tipo.INTERNO, ativo=True)
-        elif tipo == MovimentacaoProcesso.TipoTramitacao.EXTERNA:
-            destinos_qs = Departamento.objects.filter(tipo=Departamento.Tipo.EXTERNO, ativo=True)
-        else:
-            destinos_qs = Departamento.objects.filter(ativo=True)
 
+        elif tipo == MovimentacaoProcesso.TipoTramitacao.EXTERNA:
+            # EXTERNA:
+            # - ENCAMINHADO -> EXTERNO
+            # - DEVOLVIDO   -> INTERNO (retorno)
+            if acao == MovimentacaoProcesso.Acao.DEVOLVIDO:
+                destinos_qs = Departamento.objects.filter(tipo=Departamento.Tipo.INTERNO, ativo=True)
+            else:
+                destinos_qs = Departamento.objects.filter(tipo=Departamento.Tipo.EXTERNO, ativo=True)
+
+        # regra: não volta ao protocolo geral (exceto se a origem já é PG)
         if origem and not getattr(origem, "eh_protocolo_geral", False):
             destinos_qs = destinos_qs.exclude(eh_protocolo_geral=True)
 
         self.fields["departamento_destino"].queryset = destinos_qs.order_by("tipo", "nome")
 
+        # ------------------------------------------------------------
+        # ✅ Restrição de arquivar (somente ADMIN ou ARQUIVO GERAL)
+        # ------------------------------------------------------------
         if self.user and self.user.is_authenticated:
             eh_admin = getattr(getattr(self.user, "perfil", None), "papel", None) == "ADMIN"
             eh_arquivo = self._user_is_membro_arquivo_geral(self.user.id)
@@ -161,6 +269,9 @@ class MovimentacaoForm(forms.ModelForm):
                     if c[0] != MovimentacaoProcesso.Acao.ARQUIVADO
                 ]
 
+        # ------------------------------------------------------------
+        # ✅ Regra do protocolista
+        # ------------------------------------------------------------
         papel = getattr(getattr(self.user, "perfil", None), "papel", None) if self.user else None
         if papel == "PROTOCOLISTA":
             if origem and not getattr(origem, "eh_protocolo_geral", False):
@@ -171,16 +282,34 @@ class MovimentacaoForm(forms.ModelForm):
                 )
                 return
 
+        # ------------------------------------------------------------
+        # ✅ UI: ao arquivar, destino fica desabilitado e será = origem
+        # ------------------------------------------------------------
         if acao == MovimentacaoProcesso.Acao.ARQUIVADO:
             self.fields["departamento_destino"].disabled = True
-            self.fields["departamento_destino"].help_text = "Ao arquivar, o destino não é necessário."
+            self.fields["departamento_destino"].help_text = (
+                "Ao arquivar, o destino será o próprio setor atual (ARQUIVO GERAL)."
+            )
+            if origem:
+                self.initial["departamento_destino"] = origem.pk
         else:
             self.fields["departamento_destino"].disabled = False
             self.fields["departamento_destino"].help_text = ""
 
     def _inferir_origem(self):
+        """
+        Origem = setor atual real do processo:
+        - se último destino foi EXTERNO, origem será EXTERNO
+        - se último destino foi INTERNO, origem será INTERNO
+        - se não houver movimentação, cai no PROTOCOLO GERAL
+        """
         if self.processo:
-            last = self.processo.movimentacoes.first()
+            last = (
+                self.processo.movimentacoes
+                .select_related("departamento_origem", "departamento_destino")
+                .order_by("-registrado_em")
+                .first()
+            )
             if last:
                 return last.departamento_destino or last.departamento_origem
 
@@ -224,6 +353,12 @@ class MovimentacaoForm(forms.ModelForm):
                 f'eh_protocolo_geral=True (INTERNO/ativo) ou garanta que o processo já tenha movimentações.'
             )
 
+        # ✅ BLOQUEIO FORTE no POST: se está EXTERNO, não tramita por form
+        if getattr(origem, "tipo", None) == Departamento.Tipo.EXTERNO:
+            raise forms.ValidationError(
+                "Processo em órgão EXTERNO: toda tramitação está bloqueada. Aguarde o retorno ao setor interno."
+            )
+
         cleaned["departamento_origem"] = origem
 
         papel = getattr(getattr(self.user, "perfil", None), "papel", None) if self.user else None
@@ -232,27 +367,41 @@ class MovimentacaoForm(forms.ModelForm):
         if papel == "PROTOCOLISTA" and not getattr(origem, "eh_protocolo_geral", False):
             raise forms.ValidationError("Protocolista só pode tramitar enquanto o processo estiver no PROTOCOLO GERAL.")
 
-        if origem.tipo != Departamento.Tipo.INTERNO:
-            self.add_error("departamento_origem", "A origem deve ser um departamento INTERNO.")
+        # ✅ "RECEBIDO" não é pelo form (é via botão receber interno)
+        if acao == MovimentacaoProcesso.Acao.RECEBIDO:
+            raise forms.ValidationError("Ação 'RECEBIDO' não é registrada por este formulário.")
 
+        # ✅ ARQUIVAR: destino = origem (pra aparecer no histórico)
         if acao == MovimentacaoProcesso.Acao.ARQUIVADO:
             eh_arquivo = self.user and self.user.is_authenticated and self._user_is_membro_arquivo_geral(self.user.id)
             if not (eh_admin or eh_arquivo):
                 raise forms.ValidationError("Somente ADMIN ou membros do ARQUIVO GERAL podem arquivar processos.")
-            cleaned["departamento_destino"] = None
+
+            cleaned["departamento_destino"] = origem
             return cleaned
 
-        if acao == MovimentacaoProcesso.Acao.ENCAMINHADO and not destino:
-            self.add_error("departamento_destino", "Destino é obrigatório para ENCAMINHAR.")
+        # ✅ ENCAMINHADO / DEVOLVIDO exigem destino
+        if acao in (MovimentacaoProcesso.Acao.ENCAMINHADO, MovimentacaoProcesso.Acao.DEVOLVIDO) and not destino:
+            self.add_error("departamento_destino", "Destino é obrigatório para esta ação.")
 
+        # ✅ Não pode destino = origem (exceto ARQUIVADO)
         if destino and origem and destino.pk == origem.pk:
             self.add_error("departamento_destino", "O destino não pode ser o mesmo da origem.")
 
+        # ✅ Validação do destino conforme tipo + ação (RETORNO EXTERNO)
         if destino:
-            if tipo == MovimentacaoProcesso.TipoTramitacao.INTERNA and destino.tipo != Departamento.Tipo.INTERNO:
-                self.add_error("departamento_destino", "Destino deve ser INTERNO para tramitação INTERNA.")
-            if tipo == MovimentacaoProcesso.TipoTramitacao.EXTERNA and destino.tipo != Departamento.Tipo.EXTERNO:
-                self.add_error("departamento_destino", "Destino deve ser EXTERNO para tramitação EXTERNA.")
+            if tipo == MovimentacaoProcesso.TipoTramitacao.INTERNA:
+                if destino.tipo != Departamento.Tipo.INTERNO:
+                    self.add_error("departamento_destino", "Destino deve ser INTERNO para tramitação INTERNA.")
+
+            elif tipo == MovimentacaoProcesso.TipoTramitacao.EXTERNA:
+                if acao == MovimentacaoProcesso.Acao.DEVOLVIDO:
+                    if destino.tipo != Departamento.Tipo.INTERNO:
+                        self.add_error("departamento_destino", "No DEVOLVIDO (retorno), o destino deve ser INTERNO.")
+                else:
+                    if destino.tipo != Departamento.Tipo.EXTERNO:
+                        self.add_error("departamento_destino", "Destino deve ser EXTERNO para tramitação EXTERNA.")
+
             if getattr(destino, "eh_protocolo_geral", False) and not getattr(origem, "eh_protocolo_geral", False):
                 self.add_error("departamento_destino", "Não é permitido encaminhar para o PROTOCOLO GERAL.")
 
@@ -328,24 +477,22 @@ class ProcessoCreateForm(forms.Form):
     )
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+        super().__init__(*args,_strip_kwargs := {})  # noqa: F841
         self.pessoa_encontrada = None
         self.numero_int = None
         self.ano_int = None
 
     def clean_numero_processo(self):
         raw = self.cleaned_data.get("numero_processo") or ""
-        normal = _normalize_numero_processo(raw)  # "0000/00"
+        normal = _normalize_numero_processo(raw)
 
         numero4, ano2 = normal.split("/")
-        self.numero_int = int(numero4)  # 0..9999
-        self.ano_int = int(ano2)        # 0..99
+        self.numero_int = int(numero4)
+        self.ano_int = int(ano2)
 
-        # ✅ duplicidade REAL (ano + numero_manual)
         if Processo.objects.filter(ano=self.ano_int, numero_manual=self.numero_int).exists():
             raise ValidationError(f"Já existe um processo com o número {normal}.")
 
-        # reforço pelo numero_formatado (unique=True no model)
         if Processo.objects.filter(numero_formatado=normal).exists():
             raise ValidationError(f"Já existe um processo com o número {normal}.")
 
@@ -366,7 +513,7 @@ class ProcessoCreateForm(forms.Form):
 
 
 # =============================================================================
-# CADASTROS (ADMIN) - NOVOS FORMS
+# CADASTROS (ADMIN)
 # =============================================================================
 class TipoProcessoForm(forms.ModelForm):
     class Meta:
@@ -393,13 +540,18 @@ class DepartamentoForm(forms.ModelForm):
         widgets = {
             "nome": forms.TextInput(attrs={"class": "form-control"}),
             "sigla": forms.TextInput(attrs={"class": "form-control"}),
-            "tipo": forms.Select(attrs={"class": "form-select"}),
+            "tipo": forms.Select(attrs={"class": "form-select", "id": "id_tipo"}),
             "ativo": forms.CheckboxInput(attrs={"class": "form-check-input"}),
             "eh_protocolo_geral": forms.CheckboxInput(attrs={"class": "form-check-input"}),
             "eh_arquivo_geral": forms.CheckboxInput(attrs={"class": "form-check-input"}),
-            "responsavel": forms.Select(attrs={"class": "form-select"}),
-            "substituto": forms.Select(attrs={"class": "form-select"}),
+            "responsavel": forms.Select(attrs={"class": "form-select", "id": "id_responsavel"}),
+            "substituto": forms.Select(attrs={"class": "form-select", "id": "id_substituto"}),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["responsavel"].required = False
+        self.fields["substituto"].required = False
 
     def clean_nome(self):
         return (self.cleaned_data.get("nome") or "").strip().upper()
@@ -407,6 +559,26 @@ class DepartamentoForm(forms.ModelForm):
     def clean_sigla(self):
         sigla = (self.cleaned_data.get("sigla") or "").strip()
         return sigla.upper() if sigla else sigla
+
+    def clean(self):
+        cleaned = super().clean()
+        tipo = cleaned.get("tipo")
+        responsavel = cleaned.get("responsavel")
+        substituto = cleaned.get("substituto")
+
+        if tipo == Departamento.Tipo.EXTERNO:
+            if cleaned.get("eh_protocolo_geral"):
+                self.add_error("eh_protocolo_geral", "PROTOCOLO GERAL deve ser um departamento INTERNO.")
+            if cleaned.get("eh_arquivo_geral"):
+                self.add_error("eh_arquivo_geral", "ARQUIVO GERAL deve ser um departamento INTERNO.")
+            return cleaned
+
+        if tipo == Departamento.Tipo.INTERNO:
+            if not responsavel:
+                self.add_error("responsavel", "Responsável é obrigatório para departamento INTERNO.")
+            if substituto and responsavel and substituto == responsavel:
+                self.add_error("substituto", "Substituto não pode ser o mesmo usuário do responsável.")
+        return cleaned
 
 
 class DepartamentoMembroForm(forms.ModelForm):

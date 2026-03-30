@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.db import models, transaction
+from django.db import models
 from django.utils import timezone
 
 from .cadastros import Departamento
@@ -19,12 +21,15 @@ class MovimentacaoProcesso(models.Model):
     class Acao(models.TextChoices):
         ENCAMINHADO = "ENCAMINHADO", "Encaminhado"
         RECEBIDO = "RECEBIDO", "Recebido"
-        DEVOLVIDO = "DEVOLVIDO", "Devolvido"
+        DEVOLVIDO = "DEVOLVIDO", "Devolvido"   # ✅ retorno do externo
         ARQUIVADO = "ARQUIVADO", "Arquivado"
+
+        # ✅ registro histórico (não libera tramitação)
+        RECEBIDO_EXTERNO = "RECEBIDO_EXTERNO", "Recebido Externo"
 
     processo = models.ForeignKey(Processo, on_delete=models.CASCADE, related_name="movimentacoes")
     tipo_tramitacao = models.CharField(max_length=10, choices=TipoTramitacao.choices)
-    acao = models.CharField(max_length=12, choices=Acao.choices)
+    acao = models.CharField(max_length=20, choices=Acao.choices)
 
     departamento_origem = models.ForeignKey(
         Departamento,
@@ -57,12 +62,10 @@ class MovimentacaoProcesso(models.Model):
 
     def clean(self):
         """
-        ATENÇÃO:
-        - Regras que dependem do usuário logado (protocolista/arquivo geral/admin)
-          DEVEM ficar no Form, porque no form.is_valid() o registrado_por ainda não está setado.
-        - Aqui ficam apenas regras de consistência do dado (model-level).
+        Regras do MODEL (consistência do dado).
+        Regras de permissão (admin/protocolista/membros do setor) ficam no FORM/VIEW/SERVICE.
         """
-        errors = {}
+        errors: dict[str, str] = {}
 
         origem = self.departamento_origem
         destino = self.departamento_destino
@@ -70,15 +73,13 @@ class MovimentacaoProcesso(models.Model):
         tipo = self.tipo_tramitacao
 
         # ------------------------------------------------------------
-        # REGRA: Processo ARQUIVADO não aceita novas tramitações
-        # (bloqueia tudo, inclusive tentar arquivar novamente)
+        # Processo ARQUIVADO não aceita novas tramitações
         # ------------------------------------------------------------
         if self.processo_id and getattr(self.processo, "status", None) == Processo.Status.ARQUIVADO:
             errors["acao"] = "Este processo já está ARQUIVADO e não pode mais ser tramitado."
 
         # ------------------------------------------------------------
-        # Se ARQUIVADO: destino deve ser vazio e não valida regras de destino/tipo
-        # (permissão de arquivar = Form)
+        # Se ARQUIVADO: destino deve ser vazio
         # ------------------------------------------------------------
         if acao == self.Acao.ARQUIVADO:
             self.departamento_destino = None
@@ -87,33 +88,67 @@ class MovimentacaoProcesso(models.Model):
             return
 
         # ------------------------------------------------------------
-        # REGRA 1: Origem sempre INTERNO
+        # ENCAMINHADO / DEVOLVIDO exigem destino
         # ------------------------------------------------------------
-        if origem and origem.tipo != Departamento.Tipo.INTERNO:
-            errors["departamento_origem"] = "A origem deve ser um departamento INTERNO."
+        if acao in (self.Acao.ENCAMINHADO, self.Acao.DEVOLVIDO) and not destino:
+            errors["departamento_destino"] = "Destino é obrigatório para esta ação."
+
+        # RECEBIDO_EXTERNO normalmente terá destino (o órgão externo atual)
+        if acao == self.Acao.RECEBIDO_EXTERNO and not destino:
+            errors["departamento_destino"] = "Destino é obrigatório para RECEBIDO EXTERNO."
 
         # ------------------------------------------------------------
-        # REGRA 2: ENCAMINHADO exige destino
+        # origem == destino
+        # - Proibido para ENCAMINHADO/DEVOLVIDO/RECEBIDO_EXTERNO
+        # - Permitido para RECEBIDO (evento no próprio setor)
         # ------------------------------------------------------------
-        if acao == self.Acao.ENCAMINHADO and not destino:
-            errors["departamento_destino"] = "Destino é obrigatório para ENCAMINHAR."
+        if origem and destino and origem_id_equals_destino(origem, destino):
+            if acao in (self.Acao.ENCAMINHADO, self.Acao.DEVOLVIDO, self.Acao.RECEBIDO_EXTERNO):
+                errors["departamento_destino"] = "O destino não pode ser o mesmo da origem."
 
-        # 2.1) ENCAMINHADO não pode mandar para o mesmo setor
-        if acao == self.Acao.ENCAMINHADO and origem and destino and origem_id_equals_destino(origem, destino):
-            errors["departamento_destino"] = "O destino não pode ser o mesmo da origem."
+        # ------------------------------------------------------------
+        # REGRAS POR TIPO
+        # ------------------------------------------------------------
+        if tipo == self.TipoTramitacao.INTERNA:
+            if origem and origem.tipo != Departamento.Tipo.INTERNO:
+                errors["departamento_origem"] = "A origem deve ser um departamento INTERNO."
 
-        # ------------------------------------------------------------
-        # REGRA 3: valida destino conforme tipo_tramitacao (se houver destino)
-        # ------------------------------------------------------------
-        if destino:
-            if tipo == self.TipoTramitacao.INTERNA and destino.tipo != Departamento.Tipo.INTERNO:
+            if destino and destino.tipo != Departamento.Tipo.INTERNO:
                 errors["departamento_destino"] = "Destino deve ser INTERNO para tramitação INTERNA."
-            elif tipo == self.TipoTramitacao.EXTERNA and destino.tipo != Departamento.Tipo.EXTERNO:
-                errors["departamento_destino"] = "Destino deve ser EXTERNO para tramitação EXTERNA."
+
+            if acao not in (self.Acao.ENCAMINHADO, self.Acao.RECEBIDO, self.Acao.ARQUIVADO):
+                errors["acao"] = "Ação não é permitida na tramitação INTERNA."
+
+        elif tipo == self.TipoTramitacao.EXTERNA:
+            if acao not in (self.Acao.ENCAMINHADO, self.Acao.DEVOLVIDO, self.Acao.RECEBIDO_EXTERNO):
+                if acao == self.Acao.RECEBIDO:
+                    errors["acao"] = "Ação RECEBIDO não é permitida na tramitação EXTERNA."
+                else:
+                    errors["acao"] = "Ação não é permitida na tramitação EXTERNA."
+
+            # ENCAMINHADO EXTERNO: origem INTERNO -> destino EXTERNO
+            if acao == self.Acao.ENCAMINHADO:
+                if origem and origem.tipo != Departamento.Tipo.INTERNO:
+                    errors["departamento_origem"] = "Para ENCAMINHAR EXTERNO, a origem deve ser INTERNA."
+                if destino and destino.tipo != Departamento.Tipo.EXTERNO:
+                    errors["departamento_destino"] = "Para ENCAMINHAR EXTERNO, o destino deve ser EXTERNO."
+
+            # DEVOLVIDO (RETORNO): origem EXTERNO -> destino INTERNO
+            elif acao == self.Acao.DEVOLVIDO:
+                if origem and origem.tipo != Departamento.Tipo.EXTERNO:
+                    errors["departamento_origem"] = "Para DEVOLVER (retorno), a origem deve ser EXTERNA."
+                if destino and destino.tipo != Departamento.Tipo.INTERNO:
+                    errors["departamento_destino"] = "Para DEVOLVER (retorno), o destino deve ser INTERNO."
+
+            # RECEBIDO_EXTERNO (histórico)
+            elif acao == self.Acao.RECEBIDO_EXTERNO:
+                if origem and origem.tipo != Departamento.Tipo.INTERNO:
+                    errors["departamento_origem"] = "Para RECEBIDO EXTERNO, a origem deve ser INTERNA."
+                if destino and destino.tipo != Departamento.Tipo.EXTERNO:
+                    errors["departamento_destino"] = "Para RECEBIDO EXTERNO, o destino deve ser EXTERNO."
 
         # ------------------------------------------------------------
-        # REGRA 4: Depois que sai do PROTOCOLO GERAL, não volta
-        # - Se destino é PG, a origem precisa ser PG.
+        # Regra: depois que sai do PROTOCOLO GERAL, não volta
         # ------------------------------------------------------------
         if destino and getattr(destino, "eh_protocolo_geral", False):
             if not (origem and getattr(origem, "eh_protocolo_geral", False)):
@@ -121,36 +156,3 @@ class MovimentacaoProcesso(models.Model):
 
         if errors:
             raise ValidationError(errors)
-
-    def save(self, *args, **kwargs):
-        """
-        Garante consistência:
-        - valida (full_clean)
-        - salva a movimentação
-        - se ARQUIVADO, atualiza o processo na mesma transação
-        """
-        with transaction.atomic():
-            self.full_clean()
-            super().save(*args, **kwargs)
-
-            # ------------------------------------------------------------
-            # Ao arquivar: muda status do processo + registra dados do arquivamento
-            # ------------------------------------------------------------
-            if self.acao == self.Acao.ARQUIVADO:
-                update_fields = []
-
-                if self.processo.status != Processo.Status.ARQUIVADO:
-                    self.processo.status = Processo.Status.ARQUIVADO
-                    update_fields.append("status")
-
-                # Se existir no model Processo:
-                if hasattr(self.processo, "arquivado_em") and not self.processo.arquivado_em:
-                    self.processo.arquivado_em = timezone.now()
-                    update_fields.append("arquivado_em")
-
-                if hasattr(self.processo, "arquivado_por") and not self.processo.arquivado_por_id:
-                    self.processo.arquivado_por = self.registrado_por
-                    update_fields.append("arquivado_por")
-
-                if update_fields:
-                    self.processo.save(update_fields=update_fields)

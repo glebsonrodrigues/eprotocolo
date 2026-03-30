@@ -1,5 +1,8 @@
 {% extends "layout/base.html" %}
-{% block title %}{% if modo == "update" %}Editar{% else %}Nova{% endif %} Pessoa | Eprotocolo{% endblock %}
+
+{% block title %}
+  {% if modo == "update" %}Editar pessoa{% else %}Nova pessoa{% endif %} | Eprotocolo
+{% endblock %}
 
 {% block content %}
 <div class="d-flex align-items-center justify-content-between mb-3">
@@ -9,7 +12,7 @@
     </h4>
     <div class="text-muted small">Cadastro de requerente</div>
   </div>
-  <a class="btn btn-outline-secondary btn-sm" href="{% url 'pessoas_list' %}">Voltar</a>
+  <a class="btn btn-outline-secondary btn-sm" href="{% url 'pessoas_list' %}">← Voltar</a>
 </div>
 
 {% if messages %}
@@ -20,56 +23,137 @@
 
 <div class="card">
   <div class="card-body">
-    <form method="post" class="row g-3">
+
+    <form method="post" novalidate>
       {% csrf_token %}
 
-      <div class="col-12 col-lg-8">
-        {{ form.nome.label_tag }}
-        {{ form.nome }}
-        {% if form.nome.errors %}<div class="text-danger small">{{ form.nome.errors }}</div>{% endif %}
+      <div class="mb-3">
+        <div class="fw-semibold mb-2">👤 Dados da pessoa</div>
+
+        <div class="row g-3">
+          <div class="col-12 col-lg-8">
+            <label class="form-label" for="{{ form.nome.id_for_label }}">Nome</label>
+            {{ form.nome }}
+            {% if form.nome.errors %}<div class="text-danger small">{{ form.nome.errors }}</div>{% endif %}
+          </div>
+
+          <div class="col-12 col-lg-4">
+            <label class="form-label" for="{{ form.cpf.id_for_label }}">CPF</label>
+            {{ form.cpf }}
+            <div class="form-text">Formato: 000.000.000-00</div>
+            {% if form.cpf.help_text %}<div class="form-text">{{ form.cpf.help_text }}</div>{% endif %}
+            {% if form.cpf.errors %}<div class="text-danger small">{{ form.cpf.errors }}</div>{% endif %}
+          </div>
+
+          <div class="col-12 col-lg-6">
+            <label class="form-label" for="{{ form.email.id_for_label }}">E-mail</label>
+            {{ form.email }}
+            {% if form.email.errors %}<div class="text-danger small">{{ form.email.errors }}</div>{% endif %}
+          </div>
+
+          <div class="col-12 col-lg-3">
+            <label class="form-label" for="{{ form.telefone.id_for_label }}">Telefone</label>
+            {{ form.telefone }}
+            <div class="form-text">Formato: (99) 99999-9999</div>
+            {% if form.telefone.errors %}<div class="text-danger small">{{ form.telefone.errors }}</div>{% endif %}
+          </div>
+
+          <div class="col-12 col-lg-3">
+            <label class="form-label" for="{{ form.whatsapp.id_for_label }}">WhatsApp</label>
+            {{ form.whatsapp }}
+            <div class="form-text">Formato: (99) 99999-9999</div>
+            {% if form.whatsapp.errors %}<div class="text-danger small">{{ form.whatsapp.errors }}</div>{% endif %}
+          </div>
+        </div>
       </div>
 
-      <div class="col-12 col-lg-4">
-        {{ form.cpf.label_tag }}
-        {{ form.cpf }}
-        <div class="form-text">{{ form.cpf.help_text }}</div>
-        {% if form.cpf.errors %}<div class="text-danger small">{{ form.cpf.errors }}</div>{% endif %}
-      </div>
+      <hr>
 
-      <div class="col-12 col-lg-6">
-        {{ form.email.label_tag }}
-        {{ form.email }}
-        {% if form.email.errors %}<div class="text-danger small">{{ form.email.errors }}</div>{% endif %}
-      </div>
-
-      <div class="col-12 col-lg-3">
-        {{ form.telefone.label_tag }}
-        {{ form.telefone }}
-        {% if form.telefone.errors %}<div class="text-danger small">{{ form.telefone.errors }}</div>{% endif %}
-      </div>
-
-      <div class="col-12 col-lg-3">
-        {{ form.whatsapp.label_tag }}
-        {{ form.whatsapp }}
-        {% if form.whatsapp.errors %}<div class="text-danger small">{{ form.whatsapp.errors }}</div>{% endif %}
-      </div>
-
-      <div class="col-12">
+      <div class="mb-3">
+        <div class="fw-semibold mb-2">⚙️ Status</div>
         <div class="form-check">
           {{ form.ativo }}
-          {{ form.ativo.label_tag }}
+          <label class="form-check-label" for="{{ form.ativo.id_for_label }}">Ativo</label>
         </div>
         {% if form.ativo.errors %}<div class="text-danger small">{{ form.ativo.errors }}</div>{% endif %}
       </div>
 
-      <div class="col-12 d-flex gap-2">
+      <hr>
+
+      <div class="d-flex justify-content-end gap-2">
+        <a class="btn btn-outline-secondary" href="{% url 'pessoas_list' %}">Cancelar</a>
         <button class="btn btn-primary" type="submit">
           {% if modo == "update" %}Salvar{% else %}Cadastrar{% endif %}
         </button>
-        <a class="btn btn-outline-secondary" href="{% url 'pessoas_list' %}">Cancelar</a>
       </div>
 
     </form>
+
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  function onlyDigits(s) {
+    return (s || "").replace(/\D+/g, "");
+  }
+
+  function maskCPF(v) {
+    const d = onlyDigits(v).slice(0, 11);
+    const p1 = d.slice(0, 3);
+    const p2 = d.slice(3, 6);
+    const p3 = d.slice(6, 9);
+    const p4 = d.slice(9, 11);
+
+    let out = p1;
+    if (p2) out += "." + p2;
+    if (p3) out += "." + p3;
+    if (p4) out += "-" + p4;
+    return out;
+  }
+
+  function maskPhone(v) {
+    const d = onlyDigits(v).slice(0, 11);
+    const dd = d.slice(0, 2);
+    const a = d.slice(2, 7);
+    const b = d.slice(7, 11);
+
+    let out = "";
+    if (dd) out += "(" + dd;
+    if (dd.length === 2) out += ") ";
+    out += a;
+    if (b) out += "-" + b;
+    return out.trim();
+  }
+
+  function applyMask(el, masker) {
+    if (!el) return;
+
+    el.setAttribute("type", "text");
+    el.setAttribute("inputmode", "numeric");
+    el.setAttribute("autocomplete", "off");
+    el.classList.add("no-uppercase");
+
+    const handler = () => {
+      el.value = masker(el.value);
+      // ✅ SEM travar: cursor sempre no final
+      try {
+        const end = el.value.length;
+        el.setSelectionRange(end, end);
+      } catch (e) {}
+    };
+
+    el.addEventListener("input", handler);
+    el.addEventListener("blur", handler);
+
+    handler(); // aplica no load
+  }
+
+  applyMask(document.getElementById("id_cpf"), maskCPF);
+  applyMask(document.getElementById("id_telefone"), maskPhone);
+  applyMask(document.getElementById("id_whatsapp"), maskPhone);
+})();
+</script>
 {% endblock %}

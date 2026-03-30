@@ -1,3 +1,4 @@
+# apps/protocolos/urls.py
 from django.urls import path
 from . import views
 
@@ -7,11 +8,31 @@ urlpatterns = [
     path("dashboard/admin/", views.dashboard_admin, name="dashboard_admin"),
     path("dashboard/", views.dashboard_user, name="dashboard_user"),
 
+    # ✅ Setores multiusuário (ex.: Folha) - atribuição dentro do setor
+    path("processos/<int:pk>/pegar/", views.processo_pegar_setor, name="processo_pegar_setor"),
+    path("processos/<int:pk>/liberar/", views.processo_liberar_setor, name="processo_liberar_setor"),
+
     # Processos
     path("processos/", views.processos_list, name="processos_list"),
     path("processos/novo/", views.processo_create, name="processo_create"),
     path("processos/<int:pk>/", views.processo_detail, name="processo_detail"),
     path("processos/<int:pk>/visualizar/", views.processo_view, name="processo_view"),
+
+    # AJAX destinos (para atualizar o select conforme tipo/ação)
+    path(
+        "processos/<int:pk>/destinos/",
+        views.destinos_departamento_lookup,
+        name="destinos_departamento_lookup",
+    ),
+
+    # ✅ Retorno do órgão externo (volta para setor interno e destrava)
+    path(
+        "processos/<int:pk>/retorno-externo/",
+        views.processo_retorno_externo,
+        name="processo_retorno_externo",
+    ),
+
+    # Recebimentos (interno)
     path("processos/<int:pk>/receber/", views.processo_receber, name="processo_receber"),
 
     # Caixa

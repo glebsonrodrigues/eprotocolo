@@ -1,6 +1,9 @@
 from __future__ import annotations
+
 from django.conf import settings
 from django.db import models, transaction
+from django.core.exceptions import ValidationError
+
 from .cadastros import Pessoa, TipoProcesso
 
 
@@ -52,6 +55,16 @@ class Processo(models.Model):
         related_name="processos_arquivados",
     )
 
+    # ✅ NOVO: responsável dentro do setor atual (setores multiusuário)
+    responsavel_setor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="processos_atribuidos",
+        help_text="Servidor responsável pelo processo dentro do setor atual (para setores com múltiplos membros).",
+    )
+
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["ano", "numero_manual"], name="uniq_processo_ano_numero_manual"),
@@ -65,7 +78,6 @@ class Processo(models.Model):
 
     @staticmethod
     def format_numero(numero_manual: int, ano_2d: int) -> str:
-        # 4 dígitos / 2 dígitos
         return f"{numero_manual:04d}/{ano_2d:02d}"
 
     @classmethod
@@ -87,7 +99,6 @@ class Processo(models.Model):
         numero_formatado = cls.format_numero(numero_manual, ano_2d)
 
         with transaction.atomic():
-            # garante duplicidade (server-side)
             if cls.objects.select_for_update().filter(numero_formatado__iexact=numero_formatado).exists():
                 raise ValueError(f"Já existe um processo com o número {numero_formatado}.")
 
@@ -107,6 +118,19 @@ class Processo(models.Model):
             )
 
         return processo
+
+    # ✅ Helpers de atribuição (setores com múltiplos membros)
+    def limpar_responsavel_setor(self, *, save: bool = True) -> None:
+        self.responsavel_setor = None
+        if save:
+            self.save(update_fields=["responsavel_setor"])
+
+    def atribuir_responsavel_setor(self, user, *, save: bool = True) -> None:
+        if not user:
+            raise ValidationError("Usuário inválido para atribuição.")
+        self.responsavel_setor = user
+        if save:
+            self.save(update_fields=["responsavel_setor"])
 
 
 class ProcessoInteressado(models.Model):

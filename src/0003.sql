@@ -1,0 +1,4 @@
+--
+-- Remove constraint uniq_tramitacao_externa_aguardando_por_processo from model tramitacaoexterna
+--
+-- (no-op)

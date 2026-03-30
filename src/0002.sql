@@ -1,0 +1,4 @@
+--
+-- Create constraint uniq_tramitacao_externa_aguardando_por_processo on model tramitacaoexterna
+--
+-- (no-op)

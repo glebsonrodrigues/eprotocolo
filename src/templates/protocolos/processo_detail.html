@@ -26,7 +26,9 @@
     </div>
   </div>
 
-  <a class="btn btn-outline-secondary btn-sm" href="{% url 'processos_list' %}">Voltar</a>
+  <div class="d-flex gap-2">
+    <a class="btn btn-outline-secondary btn-sm" href="{% url 'processos_list' %}">Voltar</a>
+  </div>
 </div>
 
 {% if messages %}
@@ -47,6 +49,15 @@
   </div>
 {% endif %}
 
+{# ✅ AVISO quando está EXTERNO (bloqueia tudo e mostra RETORNO) #}
+{% if em_setor_externo and setor_atual %}
+  <div class="alert alert-warning small">
+    <strong>Processo em órgão EXTERNO:</strong> {{ setor_atual.nome }}.<br>
+    Enquanto estiver externo, <strong>toda tramitação interna fica bloqueada</strong>.
+    Para desbloquear, registre o <strong>retorno do órgão externo</strong> para um setor interno.
+  </div>
+{% endif %}
+
 <div class="row g-3">
   <div class="col-lg-5">
     <div class="card">
@@ -56,30 +67,132 @@
 
         {% if setor_atual %}
           <div class="alert alert-light border small">
-            <div><strong>Setor atual:</strong> {{ setor_atual.nome }}</div>
+            <div class="d-flex justify-content-between align-items-start gap-2">
+              <div>
+                <div><strong>Setor atual:</strong> {{ setor_atual.nome }}</div>
 
-            {% if pendente_recebimento %}
-              <div class="mt-1">
-                <span class="badge bg-warning text-dark">Pendente de recebimento</span>
-                <div class="text-muted">
-                  A tramitação só será liberada após o recebimento pelo responsável do setor.
-                </div>
+                {# ✅ Responsável no setor (multiusuário) #}
+                {% if responsavel_setor %}
+                  <div class="mt-1">
+                    <span class="badge bg-info text-dark">Atribuído</span>
+                    <span class="text-muted">
+                      Responsável: <strong>{{ responsavel_setor.username }}</strong>
+                    </span>
+                    {% if responsavel_setor.id == user.id %}
+                      <span class="badge bg-success ms-1">Você</span>
+                    {% endif %}
+                  </div>
+                {% else %}
+                  {% if not em_setor_externo %}
+                    <div class="mt-1">
+                      <span class="badge bg-secondary">Disponível</span>
+                      <span class="text-muted">Sem responsável definido no setor.</span>
+                    </div>
+                  {% endif %}
+                {% endif %}
               </div>
 
-              {% if pode_receber %}
-                <form method="post" action="{% url 'processo_receber' processo.id %}" class="mt-2">
-                  {% csrf_token %}
-                  <button class="btn btn-success btn-sm" type="submit">
-                    Receber processo
-                  </button>
-                </form>
+              {# ✅ Botões pegar / liberar (somente interno / não externo) #}
+              {% if not em_setor_externo and processo.status != "ARQUIVADO" %}
+                <div class="d-flex gap-2">
+                  {% if pode_pegar %}
+                    <form method="post" action="{% url 'processo_pegar_setor' processo.id %}">
+                      {% csrf_token %}
+                      <button type="submit" class="btn btn-outline-primary btn-sm">
+                        Pegar para mim
+                      </button>
+                    </form>
+                  {% endif %}
+
+                  {% if pode_liberar %}
+                    <form method="post" action="{% url 'processo_liberar_setor' processo.id %}">
+                      {% csrf_token %}
+                      <button type="submit" class="btn btn-outline-danger btn-sm">
+                        Liberar
+                      </button>
+                    </form>
+                  {% endif %}
+                </div>
               {% endif %}
+            </div>
+
+            {# ✅ Se está EXTERNO: mostra apenas retorno do órgão externo #}
+            {% if em_setor_externo %}
+              <div class="mt-1">
+                <span class="badge bg-secondary">EXTERNO</span>
+                <span class="text-muted">Tramitação interna bloqueada até retorno ao setor interno.</span>
+              </div>
+
+              <div class="mt-3">
+                <div class="fw-semibold mb-2">Retorno do órgão externo</div>
+
+                {% if setores_internos %}
+                  <form method="post" action="{% url 'processo_retorno_externo' processo.id %}">
+                    {% csrf_token %}
+
+                    <div class="mb-2">
+                      <label class="form-label small">Retornar para setor interno</label>
+                      <select name="destino_interno" class="form-select form-select-sm" required>
+                        <option value="">---------</option>
+                        {% for d in setores_internos %}
+                          <option value="{{ d.id }}">{{ d.nome }}</option>
+                        {% endfor %}
+                      </select>
+
+                      <div class="text-muted small mt-1">
+                        Registra no histórico como <strong>EXTERNA + DEVOLVIDO</strong>
+                        (origem = órgão externo atual; destino = setor interno escolhido).
+                      </div>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary btn-sm">
+                      Registrar retorno do órgão externo
+                    </button>
+                  </form>
+                {% else %}
+                  <div class="text-muted small">
+                    Nenhum setor interno disponível para retorno. Peça ao ADMIN para cadastrar/setar setores internos ativos.
+                  </div>
+                {% endif %}
+              </div>
 
             {% else %}
-              <div class="mt-1">
-                <span class="badge bg-success">Recebido</span>
-                <span class="text-muted">Este setor já registrou recebimento.</span>
-              </div>
+
+              {% if pendente_recebimento %}
+                <div class="mt-2">
+                  <span class="badge bg-warning text-dark">Pendente de recebimento</span>
+                  <div class="text-muted">
+                    A tramitação só será liberada após o recebimento pelo responsável do setor.
+                  </div>
+                </div>
+
+                {% if pode_receber %}
+                  <form method="post" action="{% url 'processo_receber' processo.id %}" class="mt-2">
+                    {% csrf_token %}
+                    <button class="btn btn-success btn-sm" type="submit">
+                      Receber processo
+                    </button>
+                  </form>
+                {% endif %}
+
+              {% else %}
+                <div class="mt-2">
+                  <span class="badge bg-success">Recebido</span>
+                  <span class="text-muted">Este setor já registrou recebimento.</span>
+                </div>
+              {% endif %}
+
+              {# ✅ Aviso se está atribuído a outra pessoa #}
+              {% if bloqueado_por_atribuicao %}
+                <div class="alert alert-warning small mt-3 mb-0">
+                  Este processo está atribuído a <strong>{{ responsavel_setor.username }}</strong>.
+                  Você pode visualizar o histórico, mas <strong>não pode tramitar</strong>.
+                  <div class="text-muted mt-1">
+                    Se precisar tramitar, peça para o responsável <strong>LIBERAR</strong> ou o ADMIN reassumir.
+                  </div>
+                </div>
+              {% endif %}
+
             {% endif %}
           </div>
 
@@ -89,7 +202,7 @@
           </div>
         {% endif %}
 
-        {# ✅ Se ARQUIVADO: NÃO mostra o formulário de tramitação (somente histórico) #}
+        {# ✅ Se ARQUIVADO: NÃO mostra o formulário de tramitação #}
         {% if processo.status == "ARQUIVADO" %}
 
           {% if pendente_recebimento and pode_receber %}
@@ -105,72 +218,88 @@
 
         {% else %}
 
-          <form method="post">
-            {% csrf_token %}
+          {# ✅ Se está EXTERNO: NÃO mostra o formulário interno #}
+          {% if em_setor_externo %}
+            <div class="text-muted small">
+              Tramitação interna bloqueada porque o processo está em órgão EXTERNO.
+            </div>
+          {% else %}
 
-            {% if form.non_field_errors %}
-              <div class="alert alert-danger small">
-                {{ form.non_field_errors }}
+            <form method="post">
+              {% csrf_token %}
+
+              {% if form.non_field_errors %}
+                <div class="alert alert-danger small">
+                  {{ form.non_field_errors }}
+                </div>
+              {% endif %}
+
+              <div class="mb-2">
+                <label class="form-label">Tipo de tramitação</label>
+                {{ form.tipo_tramitacao }}
+                {% if form.tipo_tramitacao.errors %}
+                  <div class="text-danger small">{{ form.tipo_tramitacao.errors }}</div>
+                {% endif %}
               </div>
-            {% endif %}
 
-            <div class="mb-2">
-              <label class="form-label">Tipo de tramitação</label>
-              {{ form.tipo_tramitacao }}
-              {% if form.tipo_tramitacao.errors %}
-                <div class="text-danger small">{{ form.tipo_tramitacao.errors }}</div>
-              {% endif %}
-            </div>
-
-            <div class="mb-2">
-              <label class="form-label">Ação</label>
-              {{ form.acao }}
-              {% if form.acao.errors %}
-                <div class="text-danger small">{{ form.acao.errors }}</div>
-              {% endif %}
-            </div>
-
-            {{ form.departamento_origem }}
-
-            <div class="mb-2">
-              <label class="form-label">Destino</label>
-              {{ form.departamento_destino }}
-              <div class="form-text">Para “Encaminhado”, o destino é obrigatório.</div>
-              {% if form.departamento_destino.errors %}
-                <div class="text-danger small">{{ form.departamento_destino.errors }}</div>
-              {% endif %}
-            </div>
-
-            <div class="mb-2">
-              <label class="form-label">Observação</label>
-              {{ form.observacao }}
-              {% if form.observacao.errors %}
-                <div class="text-danger small">{{ form.observacao.errors }}</div>
-              {% endif %}
-            </div>
-
-            <button
-              class="btn btn-primary w-100"
-              type="submit"
-              {% if pendente_recebimento %}disabled{% endif %}
-              {% if user.is_authenticated and user.perfil.papel == "PROTOCOLISTA" and setor_atual and not setor_atual.eh_protocolo_geral %}disabled{% endif %}
-            >
-              Salvar tramitação
-            </button>
-
-            {% if pendente_recebimento %}
-              <div class="text-muted small mt-2">
-                Tramitação bloqueada: aguardando recebimento pelo responsável do setor.
+              <div class="mb-2">
+                <label class="form-label">Ação</label>
+                {{ form.acao }}
+                {% if form.acao.errors %}
+                  <div class="text-danger small">{{ form.acao.errors }}</div>
+                {% endif %}
               </div>
-            {% endif %}
 
-            {% if user.is_authenticated and user.perfil.papel == "PROTOCOLISTA" and setor_atual and not setor_atual.eh_protocolo_geral %}
-              <div class="text-muted small mt-2">
-                Tramitação bloqueada: protocolista só atua no PROTOCOLO GERAL.
+              {{ form.departamento_origem }}
+
+              {# ✅ DESTINO: envolver em um wrapper para esconder quando ARQUIVAR #}
+              <div class="mb-2" id="destino-wrapper">
+                <label class="form-label">Destino</label>
+                {{ form.departamento_destino }}
+                <div class="form-text" id="destino-help">Para “Encaminhado” e “Devolvido”, o destino é obrigatório.</div>
+                {% if form.departamento_destino.errors %}
+                  <div class="text-danger small">{{ form.departamento_destino.errors }}</div>
+                {% endif %}
               </div>
-            {% endif %}
-          </form>
 
+              <div class="mb-2">
+                <label class="form-label">Observação</label>
+                {{ form.observacao }}
+                {% if form.observacao.errors %}
+                  <div class="text-danger small">{{ form.observacao.errors }}</div>
+                {% endif %}
+              </div>
+
+              <button
+                class="btn btn-primary w-100"
+                type="submit"
+                {% if pendente_recebimento %}disabled{% endif %}
+                {% if bloqueado_por_atribuicao %}disabled{% endif %}
+                {% if user.is_authenticated and user.perfil.papel == "PROTOCOLISTA" and setor_atual and not setor_atual.eh_protocolo_geral %}disabled{% endif %}
+              >
+                Salvar tramitação
+              </button>
+
+              {% if pendente_recebimento %}
+                <div class="text-muted small mt-2">
+                  Tramitação bloqueada: aguardando recebimento pelo responsável do setor.
+                </div>
+              {% endif %}
+
+              {% if bloqueado_por_atribuicao %}
+                <div class="text-muted small mt-2">
+                  Tramitação bloqueada: processo atribuído a outro servidor.
+                </div>
+              {% endif %}
+
+              {% if user.is_authenticated and user.perfil.papel == "PROTOCOLISTA" and setor_atual and not setor_atual.eh_protocolo_geral %}
+                <div class="text-muted small mt-2">
+                  Tramitação bloqueada: protocolista só atua no PROTOCOLO GERAL.
+                </div>
+              {% endif %}
+            </form>
+
+          {% endif %}
         {% endif %}
 
       </div>
@@ -234,4 +363,91 @@
     </div>
   </div>
 </div>
+
+{# ✅ Script AJAX de destinos do FORM (somente quando não está EXTERNO) #}
+{% if not em_setor_externo and processo.status != "ARQUIVADO" %}
+<script>
+(function () {
+  const tipoEl = document.getElementById("id_tipo_tramitacao");
+  const acaoEl = document.getElementById("id_acao");
+  const destinoEl = document.getElementById("id_departamento_destino");
+
+  // ✅ wrapper do destino (para esconder quando ARQUIVAR)
+  const destinoWrapper = document.getElementById("destino-wrapper");
+
+  if (!tipoEl || !acaoEl || !destinoEl) return;
+
+  const baseUrl = "{% url 'destinos_departamento_lookup' processo.id %}";
+
+  function isArquivar() {
+    return (acaoEl.value === "ARQUIVADO");
+  }
+
+  function toggleDestinoVisibilidade() {
+    if (!destinoWrapper) return;
+    if (isArquivar()) {
+      destinoWrapper.style.display = "none";
+      // limpa destino para não enviar lixo
+      destinoEl.value = "";
+    } else {
+      destinoWrapper.style.display = "";
+    }
+  }
+
+  async function atualizarDestinos() {
+    // ✅ se for ARQUIVAR, não tem destinos; só esconde e sai
+    if (isArquivar()) {
+      destinoEl.innerHTML = "";
+      const opt0 = document.createElement("option");
+      opt0.value = "";
+      opt0.textContent = "---------";
+      destinoEl.appendChild(opt0);
+      toggleDestinoVisibilidade();
+      return;
+    }
+
+    const tipo = tipoEl.value;
+    const acao = acaoEl.value;
+
+    const url = `${baseUrl}?tipo=${encodeURIComponent(tipo)}&acao=${encodeURIComponent(acao)}`;
+
+    const resp = await fetch(url, { headers: { "X-Requested-With": "XMLHttpRequest" } });
+    const data = await resp.json();
+
+    const valorAtual = destinoEl.value;
+
+    destinoEl.innerHTML = "";
+
+    const opt0 = document.createElement("option");
+    opt0.value = "";
+    opt0.textContent = "---------";
+    destinoEl.appendChild(opt0);
+
+    const items = (data && data.results) ? data.results : [];
+    for (const item of items) {
+      const opt = document.createElement("option");
+      opt.value = String(item.id);
+      opt.textContent = item.nome;
+      destinoEl.appendChild(opt);
+    }
+
+    if (valorAtual) {
+      destinoEl.value = valorAtual;
+      if (destinoEl.value !== valorAtual) {
+        destinoEl.value = "";
+      }
+    }
+
+    toggleDestinoVisibilidade();
+  }
+
+  tipoEl.addEventListener("change", atualizarDestinos);
+  acaoEl.addEventListener("change", atualizarDestinos);
+
+  // primeira carga
+  atualizarDestinos();
+})();
+</script>
+{% endif %}
+
 {% endblock %}

@@ -1,4 +1,5 @@
 {% extends "layout/base.html" %}
+
 {% block content %}
 <h3 class="mb-3">{% if modo == "create" %}Novo Departamento{% else %}Editar Departamento{% endif %}</h3>
 
@@ -11,22 +12,29 @@
       <label class="form-label">Nome</label>
       {{ form.nome }} {{ form.nome.errors }}
     </div>
+
     <div class="col-md-2">
       <label class="form-label">Sigla</label>
       {{ form.sigla }} {{ form.sigla.errors }}
     </div>
+
     <div class="col-md-4">
       <label class="form-label">Tipo</label>
       {{ form.tipo }} {{ form.tipo.errors }}
     </div>
 
-    <div class="col-md-6">
-      <label class="form-label">Responsável</label>
-      {{ form.responsavel }} {{ form.responsavel.errors }}
-    </div>
-    <div class="col-md-6">
-      <label class="form-label">Substituto</label>
-      {{ form.substituto }} {{ form.substituto.errors }}
+    <!-- ✅ Responsável/Substituto: agora como COLS (não row dentro de row) -->
+    <div id="box-responsaveis" class="col-12">
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label">Responsável</label>
+          {{ form.responsavel }} {{ form.responsavel.errors }}
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Substituto</label>
+          {{ form.substituto }} {{ form.substituto.errors }}
+        </div>
+      </div>
     </div>
   </div>
 
@@ -49,4 +57,33 @@
     <a class="btn btn-outline-secondary" href="{% url 'deptos_list' %}">Voltar</a>
   </div>
 </form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (function () {
+    function toggleResponsaveis() {
+      const tipo = document.getElementById("id_tipo");
+      const box = document.getElementById("box-responsaveis");
+      if (!tipo || !box) return;
+
+      const isInterno = (String(tipo.value || "").toUpperCase() === "INTERNO");
+      box.style.display = isInterno ? "" : "none";
+
+      // ✅ se virou EXTERNO, limpa para não salvar sem querer
+      if (!isInterno) {
+        const resp = document.getElementById("id_responsavel");
+        const sub = document.getElementById("id_substituto");
+        if (resp) resp.value = "";
+        if (sub) sub.value = "";
+      }
+    }
+
+    document.addEventListener("DOMContentLoaded", function () {
+      toggleResponsaveis();
+      const tipo = document.getElementById("id_tipo");
+      if (tipo) tipo.addEventListener("change", toggleResponsaveis);
+    });
+  })();
+</script>
 {% endblock %}
