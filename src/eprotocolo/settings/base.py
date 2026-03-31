@@ -143,6 +143,8 @@ STATIC_URL = "static/"
 # Se você quiser centralizar estáticos fora dos apps:
 STATICFILES_DIRS = [BASE_DIR / "static"]  # crie src/static/ se desejar
 
+STATIC_ROOT = BASE_DIR / "staticfiles"
+
 # Uploads (opcional; você disse que não precisa anexos, então pode ignorar)
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"
